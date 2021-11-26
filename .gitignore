@@ -1,0 +1,7 @@
+.gitattributes
+.vs/slnx.sqlite
+.vs/VSWorkspaceState.json
+.vscode/settings.json
+scripts/.luacheckrc
+scripts/luacheck.exe
+readme.txt
