@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
 <root version="3.3">
-	<announcement text="MountTracker v1.0 for FGC/FGU v3.3.15+, 5E\rCopyright 2021 Justin Freitas (11/25/21)" font="emotefont" icon="mount_icon" />
+	<announcement text="MountTracker v1.0 for FGC/FGU 5E, 4/17/22\r2021-2022 Justin Freitas" font="emotefont" icon="mount_icon" />
 	<properties>
 		<name>Feature: MountTracker</name>
-		<version>1.1</version>
+		<version>1.0</version>
 		<loadorder>997</loadorder>
 		<author>Justin Freitas</author>
-		<description>Tracks the mount state of a CT actor with a specific effect and some chat text with information on that actor's turn.</description>
+		<description>Tracks the mount state of a CT actor with a specific effect and some appropriate chat text information regarding rules around some actions.</description>
 		<ruleset>
 			<name>5E</name>
 		</ruleset>
@@ -15,5 +15,11 @@
 	<base>
 		<script name="MountTracker" file="scripts/mounttracker.lua" />
 		<icon name="mount_icon" file="graphics/icons/mount_icon.png" />
+
+		<string name="option_header_mounttracker">MountTracker (GM)</string>
+		<string name="option_label_MOUNTTRACKER_VISIBILITY">Player: Show Mount info</string>
+		<string name="option_val_chat_and_effects">Chat and Effects</string>
+		<string name="option_val_effects">Effects</string>
+		<string name="option_val_none">None</string>
 	</base>
 </root>
