@@ -1,21 +1,20 @@
--- Global message type to allow the client to update a npc record on the host.
-OOB_MSGTYPE_UPDATEMOUNT = "updatemount"
 -- Global message type to allow the client to attack from mount on the host.
 OOB_MSGTYPE_ATTACKFROMMOUNT = "attackfrommount"
+USER_ISHOST = false
 
-orig_onAttackMountTracker = nil
+ActionAttack_onAttack = nil
 
 -- This function is required for all extensions to initialize variables and spit out the copyright and name of the extension as it loads
 function onInit()
+	USER_ISHOST = User.isHost()
+
 	-- TODO: Require PHB to be loaded due to Mounted Combat rules being in there vs SRD?  Probably a good idea.
 	-- Only set up the Custom Turn, Combat Reset, Custom Drop, and OOB Message event handlers on the host machine because it has access/permission to all of the necessary data.
-	if User.isHost() then
+	if USER_ISHOST then
 		-- Here is where we register the onTurnStartEvent. We can register many of these which is useful. It adds them to a list and iterates through them in the order they were added.
 		CombatManager.setCustomTurnStart(onTurnStartEvent)
 		-- Drop onto CT hook for GM to drag a mount NPC onto a CT actor for a quick initialization for that droptarget to that dropped actor.
 		--CombatManager.setCustomDrop(onDropEvent)
-		-- Register a handler for the updatemount OOB message.
-		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_UPDATEMOUNT, handleUpdateMount)
 		-- Register a handler for the attackfrommount OOB message.
 		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_ATTACKFROMMOUNT, handleAttackFromMount)
 		-- TODO: What about attacking a mounted combatant?  There are special rules there (who is getting attacked?  Mount or rider?)
@@ -28,6 +27,7 @@ function onInit()
 			-- TODO: This will be the new way of doing things once they deprecate Comm.registerSlashHandler() which is coming soon.
 		--ChatManager.registerSlashCommand("mount", processChatCommand)
 
+		-- TODO: If not in combat, don't show the combat information when mounting/dismounting.
 		-- TODO: Need an effect add handler so that if Prone is added to a rider or mount then the special rules will display in the chat for notification/review.
 		-- Something like:  for _,nodeEffect in pairs(DB.getChildren(nodeActor, "effects")) do
 		-- TODO: This is for features on abilities tab but we need it for the effects nodes.
@@ -41,7 +41,7 @@ function onInit()
 	-- Unlike the Custom Turn and Init events above, the dice result handler must be registered on host and client.
 	-- On extension init, override the skill, attack (also handles spell attack rolls), and castsave result handlers with ours and call the default when we are done with our work (in the override).
 	-- The potential conflict has been mitigated by a chaining technique where we store the current action handler for use in our overridden handler.
-	orig_onAttackMountTracker = ActionAttack.onAttack
+	ActionAttack_onAttack = ActionAttack.onAttack
 	ActionAttack.onAttack = onRollAttack
 	ActionsManager.registerResultHandler("attack", onRollAttack)
 
@@ -82,6 +82,12 @@ function displayChatMessage(sFormattedText, bSecret)
 	else
 		Comm.deliverChatMessage(msg)
 	end
+end
+
+function displayTowerRoll()
+	--if checkVerbosityOff() then return end
+
+	displayChatMessage("An attack was rolled in the tower.  Attacks should be rolled in the open for proper StealthTracker processing.", USER_ISHOST)
 end
 
 function getMountNodeInCombatTracker(sMountName)
@@ -159,10 +165,6 @@ function getMountEffectNode(nodeCT)
 	return getEffectNode(nodeCT, "mount")
 end
 
-function getRiderEffectNode(nodeCT)
-	return getEffectNode(nodeCT, "rider")
-end
-
 function getMountOrRiderValueFromEffectNode(nodeEffect)
 	if not nodeEffect then return end
 
@@ -184,21 +186,13 @@ function getMountOrRiderValueFromEffectNode(nodeEffect)
 	return sExtractedMount
 end
 
--- The speed on a character sheet assumes a walk speed.  Speed on npc sheet is a
--- multi-part string that specifies movement type and range.
-function getSpeed(rActor)
-	if not rActor or not isPc(rActor) then return 0 end
+function getRiderEffectNode(nodeCT)
+	return getEffectNode(nodeCT, "rider")
+end
 
-	local rCreatureNode = ActorManager.getCreatureNode(rActor)
-	if not rCreatureNode then return 0 end
-
-	local nodeSpeed = rCreatureNode.getChild("speed")
-	if not nodeSpeed then return 0 end
-
-	local nodeSpeedTotal = nodeSpeed.getChild("total")
-	if not nodeSpeedTotal then return 0 end
-
-	return nodeSpeedTotal.getValue()
+function getSize(nodeActor)
+	if not nodeActor then return "" end
+	return nodeActor.getChild("size").getText()
 end
 
 -- Handler for the message to do an attack from a mount.
@@ -212,29 +206,8 @@ function handleAttackFromMount(msgOOB)
 		if not rSource then return end
 
 		local rTarget = ActorManager.resolveActor(msgOOB.sTargetCTNode)
-		processAttackFromMount(rSource, rTarget)
+		displayProcessAttackFromMount(rSource, rTarget)
 	end
-end
-
--- Handler for the message to update stealth that comes from a client player who is controlling a shared npc and making a stealth roll (no permission to update npc CT actor on client)
-function handleUpdateMount(msgOOB)
-	if not msgOOB or not msgOOB.type then return end
-	--[[
-	if msgOOB.type == OOB_MSGTYPE_UPDATEMOUNT then
-		if not msgOOB.nStealthTotal or not msgOOB.sCTNodeId or not msgOOB.user then return end
-
-		-- Deserialize the number. Numbers are serialized as strings in the OOB msg.
-		local nStealthTotal = tonumber(msgOOB.nStealthTotal)
-		if not nStealthTotal then return end
-
-		setRiderNodeWithMountEffect(msgOOB.sCTNodeId, nStealthTotal)
-	end
-	--]]
-end
-
--- Function that checks an actor record to see if it's a friend (faction).  Can take an actor record or a node.
-function isFriend(rActor)
-	return rActor and ActorManager.getFaction(rActor) == "friend"
 end
 
 function isMountOrRiderEffectNode(nodeEffect)
@@ -255,25 +228,28 @@ function isMountOrRiderEffectNode(nodeEffect)
 	return false
 end
 
--- Function that check an actor record (i.e. from ActorManager.resolveActor(nodeCT)) to see if it's an npc.
-function isNpc(rActor)
-	if not rActor then return false end
-	return rActor.sType == "npc"
-end
+function isMountLargerThanRider(sMount, sRider)
+	if sRider == "Medium" then
+		return not (sMount == "Tiny" or sMount == "Small" or sMount == "Medium")
+	end
 
-function isPc(rActor)
-	if not rActor then return false end
-	return rActor.sType == "charsheet"
-end
+	if sRider == "Small" then
+		return not (sMount == "Tiny" or sMount == "Small")
+	end
 
-function isSecretMessage(rSource)
-	local nodeSourceCT = ActorManager.getCTNode(rSource)
-	if not nodeSourceCT then return false end
+	if sRider == "Large" then
+		return not (sMount == "Tiny" or sMount == "Small" or sMount == "Medium" or sMount == "Large")
+	end
 
-	return CombatManager.isCTHidden(nodeSourceCT) or 	-- never show for hidden actors
-		   --not checkVisibilityAll() or 					-- show if visibility is set to Chat and Effects (all)
-		   (isNpc(rSource) and not isFriend(rSource)) 	-- show npcs only if they are friends
+	if sRider == "Tiny" then
+		return not sMount == "Tiny"
+	end
 
+	if sRider == "Huge" then
+		return not (sMount == "Tiny" or sMount == "Small" or sMount == "Medium" or sMount == "Large" or sMount == "Huge")
+	end
+
+	return false
 end
 
 -- Function to notify the host of an attack from a mounted combatant.
@@ -290,27 +266,47 @@ function notifyAttackFromMount(sSourceCTNode, sTargetCTNode)
 	Comm.deliverOOBMessage(msgOOB, "")
 end
 
+-- TODO: onAddEffect() - If the Prone effect is added to a mounted combatant pair, show the rider and mount 'knocked prone' rules (currently showing on attack hit).
+
 -- Attack roll handler
 function onRollAttack(rSource, rTarget, rRoll)
-	-- TODO: If a mount, is it controlled or not?
+	ActionAttack_onAttack(rSource, rTarget, rRoll)
+
+	-- When attacks are rolled in the tower, the target is always nil.
+	if not rTarget and rRoll.bSecret then
+		displayTowerRoll()
+	end
+
+	displayProcessAttackFromMount(rSource, rTarget)
+end
+
+function displayProcessAttackFromMount(rSource, rTarget)
+	-- if no source or no roll then exit, skipping StealthTracker processing.
+	if not rSource or not rSource.sCTNode or rSource.sCTNode == "" then return end
+
+	if not USER_ISHOST then
+		-- For clients notify of an action from mount and then exit.  Host handler will pick up message and run code after this block.
+		notifyAttackFromMount(rSource.sCTNode, (rTarget and rTarget.sCTNode) or "")
+		return
+	end
+
+	-- HOST ONLY PROCESSING STARTS HERE ----------------------------------------------------------------------------------------------------------
+
 	local nodeSource = ActorManager.getCTNode(rSource)
 	if nodeSource then
 		if getRiderEffectNode(nodeSource) then
-			-- TODO: Put correct rule.
-			displayChatMessage("Attack was made by the mount.  Is is uncontrolled?  A controlled mount can only Dash, Disengage, and Dodge.", false)
+			displayChatMessage("Attack was made by the mount.  Is is uncontrolled?  A controlled mount can only Dash, Disengage, and Dodge.", true)
 		elseif getMountEffectNode(nodeSource) then
-			displayChatMessage("Attack was made by a mounted combatant.", false)
+			displayChatMessage("Attack was made by a mounted combatant.", true)
 		end
 	end
 
 	local nodeTarget = ActorManager.getCTNode(rTarget)
 	if nodeTarget then
 		if getRiderEffectNode(nodeTarget) or getMountEffectNode(nodeTarget) then
-			displayChatMessage("Target is a mounted combatant pair.", false)
+			displayChatMessage("Target is a mounted combatant pair. If an effect moves your mount against its will while you're on it, you must succeed on a DC 10 Dexterity saving throw or fall off the mount, landing prone in a space within 5 feet of it. If you're knocked prone while mounted, you must make the same saving throw. If your mount is knocked prone, you can use your reaction to dismount it as it falls and land on your feet. Otherwise, you are dismounted and fall prone in a space within 5 feet it.", true)
 		end
 	end
-
-	orig_onAttackMountTracker(rSource, rTarget, rRoll)
 end
 
 -- This function is one that the Combat Tracker calls if present at the start of a creatures turn.  Wired up in onInit() for the host only.
@@ -319,16 +315,17 @@ function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
 	--Debug.chat(ActorManager.resolveActor(nodeCurrentCTActor))
 	local nodeEffect = getMountEffectNode(nodeCurrentCTActor)
 	local nodeRider = getRiderEffectNode(nodeCurrentCTActor)
+	local sMountActions = " It moves as you direct it, and it has only three action options: Dash, Disengage, and Dodge. If the mount provokes an opportunity attack while you're on it, the attacker can target you or the mount."
 	if nodeEffect then
 		local sMountName = getMountOrRiderValueFromEffectNode(nodeEffect)
 		local nodeMount = getMountNodeInCombatTracker(sMountName)
 		local sSpeed = nodeMount.getChild("speed").getText()
 		-- TODO: Any mounted combat rules or detail needed on the rider's turn.
-		displayChatMessage("This actor is riding a mount. Speed: " .. sSpeed, false)
+		displayChatMessage("This actor is riding a mount. Speed: " .. sSpeed .. sMountActions, true)
 	elseif nodeRider then
 		local sSpeed = nodeCurrentCTActor.getChild("speed").getText()
 		-- TODO: Any mounted combat rules or detail needed on the mount's turn.
-		displayChatMessage("This actor is a mount being ridden. Speed: " .. sSpeed, false)
+		displayChatMessage("This actor is a mount being ridden. Speed: " .. sSpeed .. sMountActions, true)
 	end
 
 	--Debug.chat(rActor)
@@ -350,29 +347,6 @@ In either case, if the mount provokes an opportunity attack while you're on it, 
 	--]]
 end
 
--- Logic to process an attack from mount (for displaying any special mounted combat rules, etc).  It's call from BOTH an attack roll and a spell attack roll (i.e. cast and castattack).
-function processAttackFromMount(rSource, rTarget)
-	-- If the source is nil but rTarget is present, that is a drag\drop from the chat to the CT for an attack roll. Problem is, there's no way to deduce who the source was.  Instead, let's assume it's the active CT node.
-	if not rSource and User.isHost() then
-		local nodeActiveCT = CombatManager.getActiveCT()
-		if not nodeActiveCT then return end
-
-		rSource = ActorManager.resolveActor(nodeActiveCT)
-	end
-
-	-- if no source or no roll then exit, skipping MountTracker processing.
-	if not rSource or not rSource.sCTNode or rSource.sCTNode == "" then return end
-
-	if not User.isHost() then
-		-- We'll have to marshall the attack from clients via OOB message because the client doesn't have access to the target information here (throws console error for nil/nPP)
-		notifyAttackFromMount(rSource.sCTNode, (rTarget and rTarget.sCTNode) or "")
-		return
-	end
-
-	-- HOST ONLY PROCESSING STARTS HERE ----------------------------------------------------------------------------------------------------------
-	-- TODO: What do we want to display about attacking from a mount?  Controlled/uncontrolled?
-end
-
 -- Handler for the 'mt' slash commands in chat.
 function processChatCommand(_, sParams)
 	-- Only allow administrative subcommands when run on the host/DM system.
@@ -388,7 +362,7 @@ function processDismountChatCommand(_, _)  -- TODO: If sParams is populated, dis
 	if not nodeCT then return end
 
 	if getRiderEffectNode(nodeCT) then
-		displayChatMessage("The current actor is a mount, dismount should occur on the rider's turn.", false)
+		displayChatMessage("The current actor is a mount, dismount should occur on the rider's turn.", true)
 		return
 	end
 
@@ -406,7 +380,7 @@ function processDismountChatCommand(_, _)  -- TODO: If sParams is populated, dis
 	expireMountOrRiderEffectOnCTNode(rRider)
 	expireMountOrRiderEffectOnCTNode(rMount)
 	-- TODO: Calculate the movement needed w/ getSpeed() but it only works as a number on pcs, string on npc that would need to be parsed (comma separated walk is default with no prefix).
-	displayChatMessage("Dismounting a creature can be done once per move and you cannot mount this or another creature in the same move.  It takes half your pc speed to dismount a creature.", false)
+	displayChatMessage("Dismounting a creature can be done once per move and you cannot mount this or another creature in the same move.  It takes half your pc speed to dismount a creature.", true)
 end
 
 -- Handler for the 'mount' slash commands in chat.  Needs to handle the uncontrolled subcommand (i.e. /mount uncontrolled [MountName])
@@ -419,32 +393,39 @@ function processMountChatCommand(_, sParams)
 	if not nodeRider then return end
 
 	if getRiderEffectNode(nodeRider) then
-		displayChatMessage("The current actor is a mount.", false)
+		displayChatMessage("The current actor is a mount.", true)
 		return
 	end
 
 	if getMountEffectNode(nodeRider) then
-		displayChatMessage("The current actor already has a mount.", false)
+		displayChatMessage("The current actor already has a mount.", true)
 		return
 	end
 
 	local sMountName = sParams
 	local nodeMount = getMountNodeInCombatTracker(sMountName);
 	if not sMountName or sMountName == "" or not nodeMount then
-		displayChatMessage("The mount name must be specified and match a friendly, npc mount in the Combat Tracker.", false)
+		displayChatMessage("The mount name must be specified and match a friendly, npc mount in the Combat Tracker.", true)
 		return
 	end
 
 	-- TODO: Make condition compound with-- Does an existing PC have the Mount: effect with the same mount name?
 	if getRiderEffectNode(nodeMount) then
-		displayChatMessage("The mount already has a rider.", false)
+		displayChatMessage("The mount already has a rider.", true)
 		return
 	end
 
 	-- TODO: 2) Does the mount in the CT have the Rider: effect already?
 	-- TODO: 3) Is it at least one size larger than the rider?
-
-
+	local sSizeRider = getSize(nodeRider)
+	local sSizeMount = getSize(nodeMount)
+	if not sSizeRider or sSizeRider == "" or not sSizeMount or sSizeMount == "" then
+		displayChatMessage("The rider and mount must have a size set.", true)
+		return
+	elseif not isMountLargerThanRider(sSizeMount, sSizeRider) then
+		displayChatMessage("The mount has to be at least one size larger than the rider.", true)
+		return
+	end
 
 	setNodeWithEffect(nodeRider, "Mount", sMountName)
 	if not nodeMount then return end
@@ -460,7 +441,7 @@ function processMountChatCommand(_, sParams)
 	-- TODO: Calculate the movement needed.
 	--Debug.chat(getSpeed(rRider))
 	-- TODO: Controlled or uncontrolled?
-	displayChatMessage("Mounting a creature can be done once per move and you cannot dismount the creature in the same move.  The creature must be within 5'.  The mount must be at least one size larger.  It takes half your speed to mount a creature.", false)
+	displayChatMessage("Mounting a creature can be done once per move and you cannot dismount the creature in the same move. The creature must be within 5'. The mount must be at least one size larger. It takes half your speed to mount a creature. The initiative of a controlled mount changes to match yours when you mount it. It moves as you direct it, and it has only three action options: Dash, Disengage, and Dodge. A controlled mount can move and act even on the turn that you mount it.", false)
 end
 
 -- Chat commands that are for host only
@@ -471,7 +452,7 @@ function processHostOnlySubcommands(sSubcommand)
 		-- Get the node for the current CT actor.
 		--local nodeActiveCT = CombatManager.getActiveCT()
 		--Debug.chat("Default /mt subcommand")
-		Debug.chat(CombatManager.getActiveCT().getChildren())
+		--Debug.chat(CombatManager.getActiveCT().getChildren())
 		return
 	end
 
