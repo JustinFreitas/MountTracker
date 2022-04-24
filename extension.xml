@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
 <root version="3.3">
-	<announcement text="MountTracker v1.0.1 FGC/FGU 5E, 4/17/22\r2021-2022 Justin Freitas" font="emotefont" icon="mount_icon" />
+	<announcement text="MountTracker v1.0 FGC/FGU 5E, 4/24/22\r2021-2022 Justin Freitas" font="emotefont" icon="mount_icon" />
 	<properties>
 		<name>Feature: MountTracker</name>
 		<version>1.0</version>

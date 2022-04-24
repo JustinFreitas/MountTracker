@@ -8,6 +8,11 @@ ReadMe and Usage Notes
 
 The purpose of this Fantasy Grounds 5e extension is to allow for Combat Tracker tracking of an actors mount state along with outputting some helpful text in the chat regarding the mount state and associated rules.
 
+Features:
+- When mounting, size checks are made (mount must be at least one size larger than rider).
+- On any action that involves mounted combat rules (i.e. mounting, dismounting, attacking from mount, being attacked while mounted), rule reminders will be output to the DM in the chat.
+- 
+
 Future Enhancements:
 - Only Carried or Equiped Mounts (shouldn't it also be required to be in the CT?) will be considered.
 - The standard mount types will be accounted for as well as anything that has a (mount) entry somewhere in the line.  For example:  MyUniqueCreature (mount)
@@ -17,6 +22,7 @@ Future Enhancements:
 - If attacking from a mount, display a chat message with any rules restrictions/guidance.
 - On turn start, recognize if the turn is on the mount CT actor.  If so, show the mount status and any other pertinent information.
 - On init change or any turn start, scrub entire CT for Rider/Mount init fixups.
+- If not in combat, don't show the combat information when mounting/dismounting.
 
 Changelist:
 - v1.0 - Initial version.
