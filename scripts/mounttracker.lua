@@ -153,7 +153,7 @@ end
 function getMountOrRiderNodeInCombatTracker(sActorName)
 	for _, nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
 		local rActor = ActorManager.resolveActor(nodeCT)
-		if rActor and (rActor.sType == "npc" or rActor.sType == "pc") and rActor.sName == sActorName then
+		if rActor and (rActor.sType == "npc" or rActor.sType == "pc") and rActor.sName:lower() == sActorName:lower() then
 			return nodeCT
 		end
 	end
@@ -384,6 +384,7 @@ function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
 		displayChatMessage("This actor is a mount being ridden. Speed: " .. sSpeed .. MOUNT_ACTIONS, true)
 	end
 
+	-- TODO: On each turn, walk the combat list and move any controlled mount in the initiative to it's rider's init.  Only change the value if it would actually change.
 	-- TODO: Is the actor someone's mount? Must be NPC or PC.  Has the Rider (PHB term) effect.  Rider can be blank/(unspecified).  Name (toLower) must match a mount effect on exactly one CT actor (or first, but multiple is error condition and should be reported to GM).  Must be Friendly.
 	-- TODO: If actor is on a mount, if the mount is uncontrolled, remind the chat that they cannot move independently unless dismounting first.  If it's controlled it can take one of the four actions.
 	-- TODO: If the actor is on a mount and it's controlled, remind the chat as such and that movement is DONE
@@ -492,15 +493,13 @@ function processMountChatCommand(_, sParams)
 		return
 	end
 
-	setNodeWithEffect(nodeRider, "Mount", sMountName)
+	setNodeWithEffect(nodeRider, "Mount", ActorManager.getDisplayName(nodeMount))
 	setNodeWithEffect(nodeMount, "Rider", ActorManager.getDisplayName(nodeRider))
-
-	-- TODO: Apply init to mount if the mount is controlled.
 	DB.setValue(nodeMount, INIT_RESULT, "number", DB.getValue(nodeRider, INIT_RESULT, 0))
-
-	-- TODO: Calculate the movement needed.
-	-- TODO: Controlled or uncontrolled?
-	displayChatMessage("Mounting a creature can be done once per move and you cannot dismount the creature in the same move. The creature must be within 5'. The mount must be at least one size larger. It takes half your speed to mount a creature. The initiative of a controlled mount changes to match yours when you mount it. It moves as you direct it, and it has only three action options: Dash, Disengage, and Dodge. A controlled mount can move and act even on the turn that you mount it.", false)
+	displayChatMessage("Mounting a creature can be done once per move and you cannot dismount the creature in the same move. " ..
+					   "The creature must be within 5'. The mount must be at least one size larger. It takes half your speed to mount a creature. " ..
+					   "The initiative of a controlled mount changes to match yours when you mount it. It moves as you direct it, " ..
+					   "and it has only three action options: Dash, Disengage, and Dodge. A controlled mount can move and act even on the turn that you mount it.", true)
 end
 
 -- Chat commands that are for host only
@@ -508,9 +507,6 @@ function processHostOnlySubcommands(sSubcommand)
 	-- Default/empty subcommand - What does the current CT actor not perceive?
 	if sSubcommand == "" then
 		-- This is the default subcommand for the host (/mt with no subcommand). It will give a chat display of .
-		-- Get the node for the current CT actor.
-		--local nodeActiveCT = CombatManager.getActiveCT()
-		--Debug.chat("Default /mt subcommand")
 		return
 	end
 

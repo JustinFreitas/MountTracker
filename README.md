@@ -11,7 +11,7 @@ The purpose of this Fantasy Grounds 5e extension is to allow for Combat Tracker 
 Features:
 - When mounting, size checks are made (mount must be at least one size larger than rider).
 - On any action that involves mounted combat rules (i.e. mounting, dismounting, attacking from mount, being attacked while mounted), rule reminders will be output to the DM in the chat.
-- 
+- It knows to consider debilitating conditions or speed of zero (i.e. grappled) when mounting/dismounting.
 
 Future Enhancements:
 - Only Carried or Equiped Mounts (shouldn't it also be required to be in the CT?) will be considered.
