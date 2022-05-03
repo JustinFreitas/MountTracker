@@ -335,7 +335,6 @@ function hasEffectColonValue(nodeEffect, sEffect, sValue)
 
 	-- Take the last Mount value found, in case it was manually entered and accidentally duplicated (iterate through all of the components).
 	for _, component in ipairs(aEffectComponents) do
-		Debug.chat(component, "^%W*" .. sEffect .. ":%W*" .. sValue .. "%W*$")
 		if string.match(component, "^%W*" .. sEffect .. ":%W*" .. sValue .. "%W*$") then
 			return true
 		end
@@ -353,7 +352,6 @@ end
 function hasRider(nodeCT, sRiderName)
 	local sRiderEffectName = "Rider"
 	local nodeRiderEffect = getEffectNode(nodeCT, sRiderEffectName)
-	Debug.chat(nodeRiderEffect, sRiderEffectName, sRiderName)
 	return hasEffectColonValue(nodeRiderEffect, sRiderEffectName, sRiderName)
 end
 
@@ -559,11 +557,9 @@ function processControlledMountChatCommand(_, sParams)
 	processMountChatCommand(sParams, false)
 end
 
--- TODO: Implement bUncontrolledMount handling.
 function processMountChatCommand(sParams, bUncontrolledMount)
 	local nodeRider = CombatManager.getActiveCT()
 	if not nodeRider then return end
-	local rRider = ActorManager.resolveActor(nodeRider)
 	local sMountName = sParams
 	local nodeMount = getMountOrRiderCombatTrackerNode(sMountName);
 	if not nodeMount or not sMountName or sMountName == "" or not isFactionMatch(nodeMount, nodeRider) then
@@ -571,16 +567,23 @@ function processMountChatCommand(sParams, bUncontrolledMount)
 		return
 	end
 
-	if getMountEffectNode(nodeRider) then
-		if not hasMount(nodeRider, sMountName) then
+	local nodeMountEffect = getMountEffectNode(nodeRider)
+	if nodeMountEffect then
+		-- Check mount validity.
+		local sEffectMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
+		local nodeMountOfEffectRider = getMountOrRiderCombatTrackerNode(sEffectMountName)
+		if hasRider(nodeMountOfEffectRider, ActorManager.getDisplayName(nodeRider)) then
 			displayChatMessage("The current actor (rider) already has a mount.", true)
 			return
 		end
 	end
 
-	-- TODO: This hasRider is a bug.  It really
-	if getRiderEffectNode(nodeMount) then
-		if not hasRider(nodeMount, ActorManager.getDisplayName(nodeRider)) then
+	local nodeRiderEffect = getRiderEffectNode(nodeMount)
+	if nodeRiderEffect then
+		-- Check rider validity.
+		local sEffectRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
+		local nodeRiderOfEffectMount = getMountOrRiderCombatTrackerNode(sEffectRiderName)
+		if hasMount(nodeRiderOfEffectMount, sMountName) then
 			displayChatMessage("The mount already has a rider.", true)
 			return
 		end
@@ -658,9 +661,11 @@ function setNodeWithEffect(nodeCT, sEffect, sValue)
 
 	if sValue then
 		if sEffect:lower() == "rider" then
-			-- TODO: Only skip turn on uncontrolled mounts.
+			-- Only skip turn on controlled mounts.
 			-- TODO: Option for SKIPTURN, default off.
-			sValue = sValue .. "; SKIPTURN"
+			if not sValue:match("Uncontrolled") then
+				sValue = sValue .. "; SKIPTURN"
+			end
 		end
 
 		sEffect = sEffect .. ": " .. sValue
