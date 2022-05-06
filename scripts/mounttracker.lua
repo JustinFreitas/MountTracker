@@ -253,14 +253,20 @@ end
 function getMountOrRiderCombatTrackerNode(sActorName)
 	if not sActorName then return nil end
 
+	local nodeFound = nil
 	for _, nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
 		local rActor = ActorManager.resolveActor(nodeCT)
-		if rActor and rActor.sName:lower() == sActorName:lower() then
-			return nodeCT
+		local sPattern = "^" .. sActorName:lower()
+		if rActor and string.match(rActor.sName:lower(), sPattern) then
+			if not nodeFound then
+				nodeFound = nodeCT
+			else
+				return nil
+			end
 		end
 	end
 
-	return nil
+	return nodeFound
 end
 
 function getMountEffectNode(nodeCT)
