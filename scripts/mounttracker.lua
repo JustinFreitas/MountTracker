@@ -572,6 +572,32 @@ function processControlledMountChatCommand(_, sParams)
 	processMountChatCommand(sParams, false)
 end
 
+function deletePairedEffectNode(nodeCT)
+	local nodeMountEffect = getMountEffectNode(nodeCT)
+	if nodeMountEffect then
+		local sEffectMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
+		local nodeMountOfEffectRider = getMountOrRiderCombatTrackerNode(sEffectMountName)
+		if hasRider(nodeMountOfEffectRider, ActorManager.getDisplayName(nodeCT)) then
+			local nodeRiderEffectOfMount = getRiderEffectNode(nodeMountOfEffectRider)
+			if nodeRiderEffectOfMount then
+				nodeRiderEffectOfMount.delete()
+			end
+		end
+	end
+
+	local nodeRiderEffect = getRiderEffectNode(nodeCT)
+	if nodeRiderEffect then
+		local sEffectRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
+		local nodeRiderOfEffectMount = getMountOrRiderCombatTrackerNode(sEffectRiderName)
+		if hasMount(nodeRiderOfEffectMount, ActorManager.getDisplayName(nodeCT)) then
+			local nodeMountEffectOfRider = getMountEffectNode(nodeRiderOfEffectMount)
+			if nodeMountEffectOfRider then
+				nodeMountEffectOfRider.delete()
+			end
+		end
+	end
+end
+
 function processMountChatCommand(sParams, bUncontrolledMount)
 	local nodeRider = CombatManager.getActiveCT()
 	if not nodeRider then return end

@@ -15,6 +15,10 @@
 	<base>
 		<script name="MountTracker" file="scripts/mounttracker.lua" />
 		<icon name="mount_icon" file="graphics/icons/mount_icon.png" />
+		<icon name="white_mount_icon" file="graphics/icons/white_mount_icon.png" />
+		<icon name="c_icon" file="graphics/icons/letter-c-icon-18-32.png" />
+		<icon name="d_icon" file="graphics/icons/letter-d-icon-18-32.png" />
+		<icon name="u_icon" file="graphics/icons/letter-u-icon-18-32.png" />
 		<includefile source="campaign/ct_host.xml" />
 
 		<string name="option_header_mounttracker">MountTracker (GM)</string>

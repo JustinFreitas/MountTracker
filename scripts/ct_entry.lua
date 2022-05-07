@@ -3,17 +3,23 @@ function onInit()
 		super.onInit();
 	end
 
-    registerMenuItem("MountTracker", "mount_icon", 3)
-    registerMenuItem("Mount", "mount_icon", 3, 2)
-    registerMenuItem("Mount (uncontrolled)", "mount_icon", 3, 3)
-    registerMenuItem("Dismount", "mount_icon", 3, 5)
+    local nPosition = 3
+    while(not pcall(registerMenuItem, "MountTracker", "white_mount_icon", nPosition)
+          and nPosition <= 8)
+    do
+        nPosition = nPosition + 1
+    end
+
+    registerMenuItem("Controlled Mount", "c_icon", nPosition, 2)
+    registerMenuItem("Uncontrolled Mount", "u_icon", nPosition, 3)
+    registerMenuItem("Dismount", "d_icon", nPosition, 5)
 end
 
 function onMenuSelection(selection, subselection)
-	if selection == 3 then
-        local nodeCT = getDatabaseNode()
-        if not nodeCT then return end
+    local nodeCT = getDatabaseNode()
+    if not nodeCT then return end
 
+    if selection == 3 then
         if subselection == 2 then
             mount(nodeCT, false)
         elseif subselection == 3 then
@@ -21,7 +27,16 @@ function onMenuSelection(selection, subselection)
         elseif subselection == 5 then
             dismount()
         end
+
+        return
     end
+
+    if selection == 6 and subselection == 7 then
+        -- Delete any corresponding rider/mount effect.
+		MountTracker.deletePairedEffectNode(nodeCT)
+	end
+
+    super.onMenuSelection(selection, subselection)
 end
 
 function dismount()
