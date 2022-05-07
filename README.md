@@ -13,6 +13,21 @@ Features:
 - On any action that involves mounted combat rules (i.e. mounting, dismounting, attacking from mount, being attacked while mounted), rule reminders will be output to the DM in the chat.
 - It knows to consider debilitating conditions or speed of zero (i.e. grappled) when mounting/dismounting.
 
+	-- TODO: On each turn, walk the combat list and move any controlled mount in the initiative to it's rider's init.  Only change the value if it would actually change.
+	-- TODO: Is the actor someone's mount? Must be NPC or PC.  Has the Rider (PHB term) effect.  Rider can be blank/(unspecified).  Name (toLower) must match a mount effect on exactly one CT actor (or first, but multiple is error condition and should be reported to GM).  Must be Friendly.
+	-- TODO: If actor is on a mount, if the mount is uncontrolled, remind the chat that they cannot move independently unless dismounting first.  If it's controlled it can take one of the four actions.
+	-- TODO: If the actor is on a mount and it's controlled, remind the chat as such and that movement is DONE
+	-- TODO: If the actor is already mounted, he cannot mount again.  DONE
+	-- TODO: If the mount has a rider, it cannot get a 2nd.  DONE
+	-- TODO: If the actor is on a mount, show their mounted speed (speed of the mount).  DONE
+	-- TODO: Works with unidentified?  Yes, works with whatever is in the name field on CT, which is the Non-ID Name field if the actor is unidentified.  DONE
+		-- TODO: Need an effect add handler so that if Prone is added to a rider or mount then the special rules will display in the chat for notification/review.
+		-- Something like:  for _,nodeEffect in pairs(DB.getChildren(nodeActor, EFFECTS)) do
+		-- TODO: This is for features on abilities tab but we need it for the effects nodes.
+		--local featureNamePath = "charsheet.*.featurelist.*.name"
+		--DB.addHandler(featureNamePath, "onAdd", onFeatureNameAddOrUpdate)
+		--DB.addHandler(featureNamePath, "onUpdate", onFeatureNameAddOrUpdate)
+
 Future Enhancements:
 - Only Carried or Equiped Mounts (shouldn't it also be required to be in the CT?) will be considered.
 - The standard mount types will be accounted for as well as anything that has a (mount) entry somewhere in the line.  For example:  MyUniqueCreature (mount)
