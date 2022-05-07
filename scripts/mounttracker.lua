@@ -20,10 +20,7 @@ UCMOUNT = "ucmount"
 USER_ISHOST = false
 
 ActionAttack_onAttack = nil
---CombatManager_onDeleteCombatantEvent = nil
---CombatManager_onDeleteCombatantEffectEvent = nil
 
--- This function is required for all extensions to initialize variables and spit out the copyright and name of the extension as it loads
 function onInit()
 	local option_header = "option_header_mounttracker"
 	local option_val_off = "option_val_off"
@@ -36,7 +33,6 @@ function onInit()
 	USER_ISHOST = User.isHost()
 
 	if USER_ISHOST then
-		-- TODO: Use StealthTracker approach of custom turn start OVERRIDE.
 		CombatManager.setCustomTurnStart(onTurnStartEvent)
 		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_ATTACKFROMMOUNT, handleAttackFromMount)
 
@@ -47,13 +43,6 @@ function onInit()
 		Comm.registerSlashHandler("dismount", processDismountChatCommand)
 			-- TODO: This will be the new way of doing things once they deprecate Comm.registerSlashHandler() which is coming soon.
 		--ChatManager.registerSlashCommand(MOUNT, processChatCommand)
-
-		-- TODO: CombatManager.onDeleteCombatantEvent override.  NOT ON DELETE, BUT EFFECT DELETE  CombatManager.onDeleteCombatantEffectEvent
-		--CombatManager_onDeleteCombatantEffectEvent = CombatManager.onDeleteCombatantEffectEvent
-		--CombatManager.onDeleteCombatantEffectEvent = onDeleteCombatantEffectEvent
-
-		--CombatManager_onDeleteCombatantEvent = CombatManager.onDeleteCombatantEvent
-		--CombatManager.onDeleteCombatantEvent = onDeleteCombatantEvent
 
 		-- TODO: If not in combat, don't show the combat information when mounting/dismounting.
 		-- TODO: Need an effect add handler so that if Prone is added to a rider or mount then the special rules will display in the chat for notification/review.
@@ -67,16 +56,9 @@ function onInit()
 		--DB.addHandler(DB.getPath(CombatManager.CT_LIST .. ".*.effects.*"), "onAdd", onAddEffect)
 	end
 
-	-- Register chat commands for both host and client.
-
-	-- Unlike the Custom Turn and Init events above, the dice result handler must be registered on host and client.
-	-- On extension init, override the skill, attack (also handles spell attack rolls), and castsave result handlers with ours and call the default when we are done with our work (in the override).
-	-- The potential conflict has been mitigated by a chaining technique where we store the current action handler for use in our overridden handler.
 	ActionAttack_onAttack = ActionAttack.onAttack
 	ActionAttack.onAttack = onRollAttack
 	ActionsManager.registerResultHandler("attack", onRollAttack)
-
-	-- TODO: Do we need the CT add handler to check for existing Mount effects with an NPC name in it?  Same with PC names?
 end
 
 -- Alphebetical list of functions below (onInit() above was an exception)
@@ -91,8 +73,7 @@ end
 -- Function that walks the CT nodes and deletes the mount effects from them.
 function clearAllMountTrackerDataFromCT()
 	-- Walk the CT resetting all names.
-	-- NOTE: _ is used as a placeholder in Lua for unused variables (in this case, the key).
-	for _, nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
+	for _,nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
 		deleteAllMountOrRiderEffects(nodeCT)
 	end
 end
@@ -101,9 +82,35 @@ end
 function deleteAllMountOrRiderEffects(nodeCT)
 	if not nodeCT then return end
 
-	for _, nodeEffect in pairs(DB.getChildren(nodeCT, EFFECTS)) do
+	for _,nodeEffect in pairs(DB.getChildren(nodeCT, EFFECTS)) do
 		if isMountOrRiderEffectNode(nodeEffect) then
 			nodeEffect.delete()
+		end
+	end
+end
+
+function deletePairedEffectNode(nodeCT)
+	local nodeMountEffect = getMountEffectNode(nodeCT)
+	if nodeMountEffect then
+		local sEffectMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
+		local nodeMountOfEffectRider = getMountOrRiderCombatTrackerNode(sEffectMountName)
+		if hasRider(nodeMountOfEffectRider, ActorManager.getDisplayName(nodeCT)) then
+			local nodeRiderEffectOfMount = getRiderEffectNode(nodeMountOfEffectRider)
+			if nodeRiderEffectOfMount then
+				nodeRiderEffectOfMount.delete()
+			end
+		end
+	end
+
+	local nodeRiderEffect = getRiderEffectNode(nodeCT)
+	if nodeRiderEffect then
+		local sEffectRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
+		local nodeRiderOfEffectMount = getMountOrRiderCombatTrackerNode(sEffectRiderName)
+		if hasMount(nodeRiderOfEffectMount, ActorManager.getDisplayName(nodeCT)) then
+			local nodeMountEffectOfRider = getMountEffectNode(nodeRiderOfEffectMount)
+			if nodeMountEffectOfRider then
+				nodeMountEffectOfRider.delete()
+			end
 		end
 	end
 end
@@ -161,7 +168,6 @@ function displayProcessAttackFromMount(rSource, rTarget, sRollDesc)
 				insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "The attacker can choose the mount or rider as the target of this opportunity attack.")
 			end
 
-			-- TODO: If 'Show rule detail' option.
 			insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Movement against will or rider knocked prone is DC 10 Dex save or fall off mount and prone w/in 5 ft. " ..
 																"If mount knocked prone, rider reaction to dismount and land on feet else dismounted and prone w/in 5 ft.")
 		end
@@ -255,6 +261,10 @@ function getFaction(nodeCT)
 	return DB.getText(nodeCT, "friendfoe", "")
 end
 
+function getMountEffectNode(nodeCT)
+	return getEffectNode(nodeCT, MOUNT)
+end
+
 function getMountOrRiderCombatTrackerNode(sActorName)
 	if not sActorName then return nil end
 
@@ -272,10 +282,6 @@ function getMountOrRiderCombatTrackerNode(sActorName)
 	end
 
 	return nodeFound
-end
-
-function getMountEffectNode(nodeCT)
-	return getEffectNode(nodeCT, MOUNT)
 end
 
 function getMountOrRiderValueFromEffectNode(nodeEffect)
@@ -379,24 +385,6 @@ function isFactionMatch(nodeCT1, nodeCT2)
 	return getFaction(nodeCT1) == getFaction(nodeCT2)
 end
 
-function isMountOrRiderEffectNode(nodeEffect)
-	if not nodeEffect then return false end
-
-	local sEffectLabel = DB.getValue(nodeEffect, LABEL, ""):lower()
-
-	-- Let's break that effect up into it's components (i.e. tokenize on ;)
-	local aEffectComponents = EffectManager.parseEffect(sEffectLabel)
-
-	-- Take the last Mount value found, in case it was manually entered and accidentally duplicated (iterate through all of the components).
-	for _,component in ipairs(aEffectComponents) do
-		if string.match(component, "^%s*mount:[^;]*$") or string.match(component, "^%s*rider:[^;]*$") then
-			return true
-		end
-	end
-
-	return false
-end
-
 function isMountLargerThanRider(sMount, sRider)
 	if sRider == SIZE_MEDIUM then
 		return not (sMount == SIZE_TINY or sMount == SIZE_SMALL or sMount == SIZE_MEDIUM)
@@ -421,6 +409,24 @@ function isMountLargerThanRider(sMount, sRider)
 	return false
 end
 
+function isMountOrRiderEffectNode(nodeEffect)
+	if not nodeEffect then return false end
+
+	local sEffectLabel = DB.getValue(nodeEffect, LABEL, ""):lower()
+
+	-- Let's break that effect up into it's components (i.e. tokenize on ;)
+	local aEffectComponents = EffectManager.parseEffect(sEffectLabel)
+
+	-- Take the last Mount value found, in case it was manually entered and accidentally duplicated (iterate through all of the components).
+	for _,component in ipairs(aEffectComponents) do
+		if string.match(component, "^%s*mount:[^;]*$") or string.match(component, "^%s*rider:[^;]*$") then
+			return true
+		end
+	end
+
+	return false
+end
+
 function isTrap(nodeCT)
 	return DB.getText(nodeCT, "type", ""):lower():match("trap") ~= nil
 end
@@ -439,14 +445,6 @@ function notifyAttackFromMount(sSourceCTNode, sTargetCTNode, sRollDesc)
 	msgOOB.sRollDesc = sRollDesc
 	Comm.deliverOOBMessage(msgOOB, "")
 end
-
--- function onDeleteCombatantEvent(nodeCT)
--- 	CombatManager_onDeleteCombatantEvent(nodeCT)
--- end
-
--- function onDeleteCombatantEffectEvent(nodeEffectList)
--- 	CombatManager_onDeleteCombatantEffectEvent(nodeEffectList)
--- end
 
 -- TODO: onAddEffect() - If the Prone effect is added to a mounted combatant pair, show the rider and mount 'knocked prone' rules (currently showing on attack hit).
 -- DB.addHandler(DB.getPath(CombatManager.CT_LIST .. ".*.effects.*"), "onAdd", onAddEffect); -- Something like this from Aura extension.
@@ -501,14 +499,6 @@ function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
 	-- TODO: If the mount has a rider, it cannot get a 2nd.  DONE
 	-- TODO: If the actor is on a mount, show their mounted speed (speed of the mount).  DONE
 	-- TODO: Works with unidentified?  Yes, works with whatever is in the name field on CT, which is the Non-ID Name field if the actor is unidentified.  DONE
-
-	--[[
-While you're mounted, you have two options. You can either control the mount or allow it to act independently. Intelligent creatures, such as dragons, act independently.
-You can control a mount only if it has been trained to accept a rider. Domesticated horses, donkeys, and similar creatures are assumed to have such training.
-The initiative of a controlled mount changes to match yours when you mount it. It moves as you direct it, and it has only three action options: Dash, Disengage, and Dodge. A controlled mount can move and act even on the turn that you mount it.
-An independent mount retains its place in the initiative order. Bearing a rider puts no restrictions on the actions the mount can take, and it moves and acts as it wishes. It might flee from combat, rush to attack and devour a badly injured foe, or otherwise act against your wishes.
-In either case, if the mount provokes an opportunity attack while you're on it, the attacker can target you or the mount.
-	--]]
 end
 
 -- Handler for the 'mt' slash commands in chat.
@@ -518,6 +508,12 @@ function processChatCommand(_, sParams)
 	if sFailedSubcommand then
 		displayChatMessage("Unrecognized subcommand: " .. sFailedSubcommand, true)
 	end
+end
+
+-- Handler for the 'mount' slash commands in chat.  Needs to handle the uncontrolled subcommand (i.e. /mount uncontrolled [MountName])
+-- TODO: If target mount/npc is intelligent (what int value? 6? 8?), it's always uncontrolled.
+function processControlledMountChatCommand(_, sParams)
+	processMountChatCommand(sParams, false)
 end
 
 -- Handler for the 'dismount' slash commands in chat.
@@ -563,39 +559,23 @@ function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated
 	displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", true)
 end
 
--- Handler for the 'mount' slash commands in chat.  Needs to handle the uncontrolled subcommand (i.e. /mount uncontrolled [MountName])
--- TODO: Needs to find MountName in the CT (after trim), else chat error message and no modifications.
--- TODO: Needs to find MountName in the CT and put the 'Rider: [PCName]' effect on the mount. If uncontrolled, it needs to be designated as such (i.e. Rider: Tauvek (uncontrolled))
--- TODO: Needs to adjust the initiative if the mount is controlled.
--- TODO: If target mount/npc is intelligent (what int value? 6? 8?), it's always uncontrolled.
-function processControlledMountChatCommand(_, sParams)
-	processMountChatCommand(sParams, false)
-end
-
-function deletePairedEffectNode(nodeCT)
-	local nodeMountEffect = getMountEffectNode(nodeCT)
-	if nodeMountEffect then
-		local sEffectMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
-		local nodeMountOfEffectRider = getMountOrRiderCombatTrackerNode(sEffectMountName)
-		if hasRider(nodeMountOfEffectRider, ActorManager.getDisplayName(nodeCT)) then
-			local nodeRiderEffectOfMount = getRiderEffectNode(nodeMountOfEffectRider)
-			if nodeRiderEffectOfMount then
-				nodeRiderEffectOfMount.delete()
-			end
-		end
+-- Chat commands that are for host only
+function processHostOnlySubcommands(sSubcommand)
+	-- Default/empty subcommand - What does the current CT actor not perceive?
+	if sSubcommand == "" then
+		-- This is the default subcommand for the host (/mt with no subcommand). It will give a chat display of .
+		return
 	end
 
-	local nodeRiderEffect = getRiderEffectNode(nodeCT)
-	if nodeRiderEffect then
-		local sEffectRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
-		local nodeRiderOfEffectMount = getMountOrRiderCombatTrackerNode(sEffectRiderName)
-		if hasMount(nodeRiderOfEffectMount, ActorManager.getDisplayName(nodeCT)) then
-			local nodeMountEffectOfRider = getMountEffectNode(nodeRiderOfEffectMount)
-			if nodeMountEffectOfRider then
-				nodeMountEffectOfRider.delete()
-			end
-		end
+	-- This is a mount name, so if the main command is mount let's use it.  Otherwise, ignore.
+	if sSubcommand:lower() == "clear" then
+		clearAllMountTrackerDataFromCT()
+		displayChatMessage("MountTracker effects cleared from Combat Tracker.", true)
+		return
 	end
+
+	-- Fallthrough/unrecognized subcommand
+	return sSubcommand
 end
 
 function processMountChatCommand(sParams, bUncontrolledMount)
@@ -685,25 +665,6 @@ end
 
 function processUncontrolledMountChatCommand(_, sParams)
 	processMountChatCommand(sParams, true)
-end
-
--- Chat commands that are for host only
-function processHostOnlySubcommands(sSubcommand)
-	-- Default/empty subcommand - What does the current CT actor not perceive?
-	if sSubcommand == "" then
-		-- This is the default subcommand for the host (/mt with no subcommand). It will give a chat display of .
-		return
-	end
-
-	-- This is a mount name, so if the main command is mount let's use it.  Otherwise, ignore.
-	if sSubcommand:lower() == "clear" then
-		clearAllMountTrackerDataFromCT()
-		displayChatMessage("MountTracker effects cleared from Combat Tracker.", true)
-		return
-	end
-
-	-- Fallthrough/unrecognized subcommand
-	return sSubcommand
 end
 
 function setNodeWithEffect(nodeCT, sEffect, sValue)
