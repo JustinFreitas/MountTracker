@@ -1,10 +1,14 @@
+-- This extension contains 5e SRD mounted combat rules.  For license details see file: Open Gaming License v1.0a.txt
+
 EFFECTS = "effects"
 INIT_RESULT = "initresult"
 LABEL = "label"
 MOUNT = "mount"
 MOUNT_ACTIONS = " It moves as you direct it, and it has only three action options: Dash, Disengage, and Dodge. If the mount provokes an opportunity attack while you're on it, the attacker can target you or the mount."
+MOUNTTRACKER_CONTROLLED_MOUNT_SKIP = "MOUNTTRACKER_CONTROLLED_MOUNT_SKIP"
 MOUNTTRACKER_VERBOSE = "MOUNTTRACKER_VERBOSE"
 OFF = "off"
+ON = "on"
 OOB_MSGTYPE_ATTACKFROMMOUNT = "attackfrommount"
 SECRET = true
 SIZE_HUGE = "Huge"
@@ -21,6 +25,14 @@ ActionAttack_onAttack = nil
 
 -- This function is required for all extensions to initialize variables and spit out the copyright and name of the extension as it loads
 function onInit()
+	local option_header = "option_header_mounttracker"
+	local option_val_off = "option_val_off"
+	local option_entry_cycler = "option_entry_cycler"
+	OptionsManager.registerOption2(MOUNTTRACKER_CONTROLLED_MOUNT_SKIP, false, option_header, "option_label_MOUNTTRACKER_CONTROLLED_MOUNT_SKIP", option_entry_cycler,
+	{ labels = option_val_off, values = OFF, baselabel = "option_val_on", baseval = ON, default = ON })
+	OptionsManager.registerOption2(MOUNTTRACKER_VERBOSE, false, option_header, "option_label_MOUNTTRACKER_VERBOSE", option_entry_cycler,
+	{ labels = option_val_off, values = OFF, baselabel = "option_val_on", baseval = ON, default = ON })
+
 	USER_ISHOST = User.isHost()
 
 	if USER_ISHOST then
@@ -68,9 +80,12 @@ function onInit()
 end
 
 -- Alphebetical list of functions below (onInit() above was an exception)
+function checkControlledMountSkip()
+	return OptionsManager.isOption(MOUNTTRACKER_CONTROLLED_MOUNT_SKIP, ON)
+end
 
-function checkVerbosityOff()
-	return OptionsManager.isOption(MOUNTTRACKER_VERBOSE, OFF)
+function checkVerbosity()
+	return OptionsManager.isOption(MOUNTTRACKER_VERBOSE, ON)
 end
 
 -- Function that walks the CT nodes and deletes the mount effects from them.
@@ -107,9 +122,7 @@ function displayChatMessage(sFormattedText, bSecret)
 	end
 end
 
-function displayDebilitatingConditionChatMessage(vActor, sCondition, bForce)
-	if not bForce and checkVerbosityOff() then return end
-
+function displayDebilitatingConditionChatMessage(vActor, sCondition)
 	local sText = string.format("'%s' is %s, can't mount/dismount.",
 								ActorManager.getDisplayName(vActor),
 								sCondition)
@@ -157,20 +170,12 @@ function displayProcessAttackFromMount(rSource, rTarget, sRollDesc)
 	displayTableIfNonEmpty(aOutput)
 end
 
-function displayTableIfNonEmpty(aTable, bForce)
-	if not bForce and checkVerbosityOff() then return end
-
+function displayTableIfNonEmpty(aTable)
 	aTable = validateTableOrNew(aTable)
 	if #aTable > 0 then
 		local sDisplay = table.concat(aTable, "\r")
 		displayChatMessage(sDisplay, true)
 	end
-end
-
-function displayTowerRoll()
-	if checkVerbosityOff() then return end
-
-	displayChatMessage("An attack was rolled in the tower.  Attacks should be rolled in the open for proper StealthTracker processing.", USER_ISHOST)
 end
 
 -- Function to expire the last found stealth effect in the CT node's effects table.  An explicit expiration is needed because the built-in expiration only works if the coded effect matches a known roll or action type (i.e. ATK:3 will expire on attack roll).
@@ -449,12 +454,6 @@ end
 -- Attack roll handler
 function onRollAttack(rSource, rTarget, rRoll)
 	ActionAttack_onAttack(rSource, rTarget, rRoll)
-
-	-- When attacks are rolled in the tower, the target is always nil.
-	if not rTarget and rRoll.bSecret then
-		displayTowerRoll()
-	end
-
 	displayProcessAttackFromMount(rSource, rTarget, rRoll.sDesc)
 end
 
@@ -463,13 +462,16 @@ function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
 	local rCurrentActor = ActorManager.resolveActor(nodeCurrentCTActor)
 	local nodeMountEffect = getMountEffectNode(nodeCurrentCTActor)
 	local nodeRiderEffect = getRiderEffectNode(nodeCurrentCTActor)
+	local sMountActions = ""
+	if checkVerbosity() then sMountActions = MOUNT_ACTIONS end
+
 	if nodeMountEffect then
 		local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
 		local nodeMount = getMountOrRiderCombatTrackerNode(sMountName)
 		if hasRider(nodeMount, rCurrentActor.sName) then
 			local sSpeed = getSpeed(nodeMount)
-			-- TODO: Any mounted combat rules or detail needed on the rider's turn.
-			displayChatMessage("This actor is riding a mount. Speed: " .. sSpeed .. MOUNT_ACTIONS, true)
+			-- Any mounted combat rules or detail needed on the rider's turn.
+			displayChatMessage("This actor is riding a mount. Speed: " .. sSpeed .. sMountActions, true)
 		else
 			deleteAllMountOrRiderEffects(nodeCurrentCTActor)
 		end
@@ -483,7 +485,7 @@ function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
 			-- TODO: Any mounted combat rules or detail needed on the mount's turn.
 			local bHasSkipTurn = getEffectNode(nodeCurrentCTActor, "skipturn", true)
 			if not bHasSkipTurn then
-				displayChatMessage("This actor is a mount being ridden. Speed: " .. sSpeed .. MOUNT_ACTIONS, true)
+				displayChatMessage("This actor is a mount being ridden. Speed: " .. sSpeed .. sMountActions, true)
 			end
 		else
 			deleteAllMountOrRiderEffects(nodeCurrentCTActor)
@@ -519,17 +521,24 @@ function processChatCommand(_, sParams)
 end
 
 -- Handler for the 'dismount' slash commands in chat.
-function processDismountChatCommand(_, _)  -- TODO: If sParams is populated, dismount that user no matter the CT position.
-	local nodeCT = CombatManager.getActiveCT()
+function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated, dismount that user no matter the CT position.
+	local nodeCT = getMountOrRiderCombatTrackerNode(sRider)
+	if not nodeCT then
+		nodeCT = CombatManager.getActiveCT()
+	end
+
 	if not nodeCT then return end
 
 	if getRiderEffectNode(nodeCT) then
-		displayChatMessage("The current actor is a mount, dismount should occur on the rider's turn.", true)
+		displayChatMessage("The actor is a mount, dismount should occur on the rider's turn.", true)
 		return
 	end
 
 	local nodeMountEffect = getMountEffectNode(nodeCT)
-	if not nodeMountEffect then return end
+	if not nodeMountEffect then
+		displayChatMessage("The actor does not have a mount.", true)
+		return
+	end
 
 	local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
 	if not sMountName then return end
@@ -551,7 +560,7 @@ function processDismountChatCommand(_, _)  -- TODO: If sParams is populated, dis
 	expireMountOrRiderEffectOnCTNode(nodeCT)
 	expireMountOrRiderEffectOnCTNode(nodeMount)
 	-- TODO: Calculate the movement needed w/ getSpeed() but it only works as a number on pcs, string on npc that would need to be parsed (comma separated walk is default with no prefix).
-	displayChatMessage("Dismounting a creature can be done once per move and you cannot mount this or another creature in the same move.  It takes half your pc speed to dismount a creature.", true)
+	displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", true)
 end
 
 -- Handler for the 'mount' slash commands in chat.  Needs to handle the uncontrolled subcommand (i.e. /mount uncontrolled [MountName])
@@ -566,8 +575,14 @@ end
 function processMountChatCommand(sParams, bUncontrolledMount)
 	local nodeRider = CombatManager.getActiveCT()
 	if not nodeRider then return end
+
 	local sMountName = sParams
 	local nodeMount = getMountOrRiderCombatTrackerNode(sMountName);
+	if nodeRider == nodeMount then
+		displayChatMessage("The rider and mount must be unique names.", true)
+		return
+	end
+
 	if not nodeMount or not sMountName or sMountName == "" or not isFactionMatch(nodeMount, nodeRider) then
 		displayChatMessage("The mount name must be specified and match a same faction, npc/pc mount in the Combat Tracker.", true)
 		return
@@ -619,23 +634,26 @@ function processMountChatCommand(sParams, bUncontrolledMount)
 
 	-- Uncontrolled options start here.
 	local sMountValue = ActorManager.getDisplayName(nodeMount)
-	if bUncontrolledMount then sMountValue = sMountValue .. "; Uncontrolled" end
+	local sSemicolonUncontrolled = "; Uncontrolled"
+	if bUncontrolledMount then sMountValue = sMountValue .. sSemicolonUncontrolled end
 	setNodeWithEffect(nodeRider, "Mount", sMountValue)
 	local sRiderValue = ActorManager.getDisplayName(nodeRider)
-	if bUncontrolledMount then sRiderValue = sRiderValue .. "; Uncontrolled" end
+	if bUncontrolledMount then sRiderValue = sRiderValue .. sSemicolonUncontrolled end
 	setNodeWithEffect(nodeMount, "Rider", sRiderValue)
-	local sCoreMountRules = "Mounting a creature can be done once per move and you cannot dismount the creature in the same move. " ..
-							"The creature must be within 5'. The mount must be at least one size larger. It takes half your speed to mount a creature. "
-	if bUncontrolledMount then
-		displayChatMessage(sCoreMountRules ..
-						"Intelligent creatures, such as dragons, act independently. An independent mount retains its place in the initiative order. " ..
-						"Bearing a rider puts no restrictions on the actions the mount can take, and it moves and acts as it wishes. It might flee from combat, " ..
-						"rush to attack and devour a badly injured foe, or otherwise act against your wishes.", true)
-	else
-		DB.setValue(nodeMount, INIT_RESULT, "number", DB.getValue(nodeRider, INIT_RESULT, 0))
-		displayChatMessage(sCoreMountRules ..
-						"The initiative of a controlled mount changes to match yours when you mount it. It moves as you direct it, " ..
-						"and it has only three action options: Dash, Disengage, and Dodge. A controlled mount can move and act even on the turn that you mount it.", true)
+	if checkVerbosity() then
+		local sCoreMountRules = "Mounting a creature can be done once per move and you cannot dismount the creature in the same move. " ..
+								"The creature must be within 5'. The mount must be at least one size larger. It takes half your speed to mount a creature. "
+		if bUncontrolledMount then
+			displayChatMessage(sCoreMountRules ..
+							"\r\rIntelligent creatures, such as dragons, act independently. An independent mount retains its place in the initiative order. " ..
+							"Bearing a rider puts no restrictions on the actions the mount can take, and it moves and acts as it wishes. It might flee from combat, " ..
+							"rush to attack and devour a badly injured foe, or otherwise act against your wishes.", true)
+		else
+			DB.setValue(nodeMount, INIT_RESULT, "number", DB.getValue(nodeRider, INIT_RESULT, 0))
+			displayChatMessage(sCoreMountRules ..
+							"\r\rThe initiative of a controlled mount changes to match yours when you mount it. It moves as you direct it, " ..
+							"and it has only three action options: Dash, Disengage, and Dodge. A controlled mount can move and act even on the turn that you mount it.", true)
+		end
 	end
 end
 
@@ -669,7 +687,7 @@ function setNodeWithEffect(nodeCT, sEffect, sValue)
 		if sEffect:lower() == "rider" then
 			-- Only skip turn on controlled mounts.
 			-- TODO: Option for SKIPTURN, default off.
-			if not sValue:match("Uncontrolled") then
+			if not sValue:match("Uncontrolled") and checkControlledMountSkip() then
 				sValue = sValue .. "; SKIPTURN"
 			end
 		end
