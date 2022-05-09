@@ -20,6 +20,7 @@
 		<icon name="d_icon" file="graphics/icons/letter-d-icon-18-32.png" />
 		<icon name="u_icon" file="graphics/icons/letter-u-icon-18-32.png" />
 		<includefile source="campaign/ct_host.xml" />
+		<includefile source="campaign/ct_client.xml" />
 
 		<string name="option_header_mounttracker">MountTracker (GM)</string>
 		<string name="option_label_MOUNTTRACKER_CONTROLLED_MOUNT_SKIP">CT: Skip Controlled Mount Turn</string>

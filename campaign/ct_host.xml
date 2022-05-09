@@ -2,6 +2,6 @@
 
 <root>
 	<windowclass name="ct_entry" merge="join">
-		<script file="scripts/ct_entry.lua" />
+		<script file="scripts/ct_host_ct_entry.lua" />
 	</windowclass>
 </root>

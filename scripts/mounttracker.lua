@@ -12,6 +12,8 @@ MOUNTTRACKER_VERBOSE = "MOUNTTRACKER_VERBOSE"
 OFF = "off"
 ON = "on"
 OOB_MSGTYPE_ATTACKFROMMOUNT = "attackfrommount"
+OOB_MSGTYPE_MOUNT = "mount"
+OOB_MSGTYPE_DISMOUNT = "dismount"
 PRONE_RULES = "If an effect moves your mount against its will while you're on it, you must succeed on a DC 10 Dexterity saving throw or fall off the mount, landing prone in a space within 5 feet of it. If you're knocked prone while mounted, you must make the same saving throw. If your mount is knocked prone, you can use your reaction to dismount it as it falls and land on your feet. Otherwise, you are dismounted and fall prone in a space within 5 feet it."
 SECRET = true
 SIZE_HUGE = "Huge"
@@ -41,6 +43,8 @@ function onInit()
 	if USER_ISHOST then
 		CombatManager.setCustomTurnStart(onTurnStartEvent)
 		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_ATTACKFROMMOUNT, handleAttackFromMount)
+		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_MOUNT, handleMount)
+		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_DISMOUNT, handleDismount)
 
 		Comm.registerSlashHandler("mt", processChatCommand) -- a command for status of current CT actor and also for subcommands (i.e. clear).
 		Comm.registerSlashHandler("mounttracker", processChatCommand) -- a command for status of current CT actor and also for subcommands (i.e. clear).
@@ -344,7 +348,7 @@ function getMountOrRiderValueFromEffectNode(nodeEffect)
 	-- Take the last Mount value found, in case it was manually entered and accidentally duplicated (iterate through all of the components).
 	for _, component in ipairs(aEffectComponents) do
 		local sMatch = string.match(component, "^%s*Mount:%s*(.+)%s*$") or
-					   string.match(component, "^%s*Rider:%s*(.+)%s*$")  -- TODO: Can we tie in an inventory mount somehow?
+					   string.match(component, "^%s*Rider:%s*(.+)%s*$")
 		if sMatch then
 			sExtractedMount = sMatch
 		end
@@ -389,6 +393,21 @@ function handleAttackFromMount(msgOOB)
 		local rTarget = ActorManager.resolveActor(msgOOB.sTargetCTNode)
 		displayProcessAttackFromMount(rSource, rTarget, msgOOB.sRollDesc)
 	end
+end
+
+function handleMount(msgOOB)
+	if not msgOOB or not msgOOB.type or msgOOB.type ~= OOB_MSGTYPE_MOUNT then return end
+
+	if not msgOOB.sTargetCTNode then return end
+
+	local stringToBoolean = { ["true"] = true, ["false"] = false }
+	processMountChatCommand(msgOOB.sTargetCTNode, not stringToBoolean[msgOOB.sControlledBoolean])
+end
+
+function handleDismount(msgOOB)
+	if not msgOOB or not msgOOB.type or msgOOB.type ~= OOB_MSGTYPE_DISMOUNT then return end
+
+	processDismountChatCommand(ActorManager.getDisplayName(CombatManager.getActiveCT()))
 end
 
 function hasEffectColonValue(nodeEffect, sEffect, sValue)
@@ -487,6 +506,27 @@ function notifyAttackFromMount(sSourceCTNode, sTargetCTNode, sRollDesc)
 	msgOOB.sSourceCTNode = sSourceCTNode
 	msgOOB.sTargetCTNode = sTargetCTNode
 	msgOOB.sRollDesc = sRollDesc
+	Comm.deliverOOBMessage(msgOOB, "")
+end
+
+function notifyDismount()
+	-- Setup the OOB message object, including the required type.
+	local msgOOB = {}
+	msgOOB.type = OOB_MSGTYPE_DISMOUNT
+	msgOOB.sUsername = User.getUsername()
+
+	Comm.deliverOOBMessage(msgOOB, "")
+end
+
+function notifyMount(sTarget, bUncontrolledMount)
+	-- Setup the OOB message object, including the required type.
+	local msgOOB = {}
+	msgOOB.type = OOB_MSGTYPE_MOUNT
+
+	msgOOB.sUsername = User.getUsername()
+	msgOOB.sControlledBoolean = tostring(not bUncontrolledMount)
+	msgOOB.sTargetCTNode = sTarget
+
 	Comm.deliverOOBMessage(msgOOB, "")
 end
 
@@ -610,14 +650,13 @@ function processHostOnlySubcommands(sSubcommand)
 	return sSubcommand
 end
 
-function processMountChatCommand(sParams, bUncontrolledMount)
+function processMountChatCommand(sMountName, bUncontrolledMount)
 	local nodeRider = CombatManager.getActiveCT()
 	if not nodeRider then
 		displayChatMessage("Combat is not active, which is required for MountTracker processing.", true)
 		return
 	end
 
-	local sMountName = sParams
 	local nodeMount = getMountOrRiderCombatTrackerNode(sMountName);
 	if nodeRider == nodeMount then
 		displayChatMessage("The rider and mount must be unique names.", true)
@@ -694,7 +733,11 @@ function processMountChatCommand(sParams, bUncontrolledMount)
 							"rush to attack and devour a badly injured foe, or otherwise act against your wishes."
 		end
 	else
-		DB.setValue(nodeMount, INIT_RESULT, "number", DB.getValue(nodeRider, INIT_RESULT, 0))
+		local sOldInit = tostring(DB.getValue(nodeMount, INIT_RESULT, 0))
+		local nNewInit = DB.getValue(nodeRider, INIT_RESULT, 0)
+		local sNewInit = tostring(nNewInit)
+		DB.setValue(nodeMount, INIT_RESULT, "number", nNewInit)
+		sCoreMountRules = "Changed the mount initiative from " .. sOldInit .. " to " .. sNewInit .. ".\r\r" .. sCoreMountRules
 		if checkVerbosityMax() then
 			sRuleDetail = "\r\rThe initiative of a controlled mount changes to match yours when you mount it. It moves as you direct it, " ..
 							"and it has only three action options: Dash, Disengage, and Dodge. A controlled mount can move and act even on the turn that you mount it."
