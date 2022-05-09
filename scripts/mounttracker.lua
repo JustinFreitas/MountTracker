@@ -64,8 +64,21 @@ function addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
 	if rNewEffect.sName == "Prone" then
 		local nodeRiderEffect = getRiderEffectNode(nodeCT)
 		local nodeMountEffect = getMountEffectNode(nodeCT)
-		if (nodeRiderEffect or nodeMountEffect) and checkVerbosityMax() then
-			displayChatMessage(PRONE_RULES, true)
+		if (nodeRiderEffect or nodeMountEffect) then
+			if nodeRiderEffect then
+				local sRider = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
+				local nodeRider = getMountOrRiderCombatTrackerNode(sRider)
+				local nodeMountEffectFromEffectRider = getMountEffectNode(nodeRider)
+				if nodeMountEffectFromEffectRider then
+					nodeMountEffectFromEffectRider.delete()
+				end
+
+				nodeRiderEffect.delete()
+			end
+
+			if not checkVerbosityOff() then
+				displayChatMessage(PRONE_RULES, not checkVerbosityMax())
+			end
 		end
 	end
 end
@@ -500,7 +513,7 @@ function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
 		if hasRider(nodeMount, rCurrentActor.sName) then
 			local sSpeed = getSpeed(nodeMount)
 			-- Any mounted combat rules or detail needed on the rider's turn.
-			displayChatMessage("This actor is riding a mount. Speed: " .. sSpeed .. sMountActions, true)
+			displayChatMessage("This actor is riding a mount. Speed: " .. sSpeed .. sMountActions, not checkVerbosityMax())
 		end
 
 		return
@@ -511,7 +524,7 @@ function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
 			local sSpeed = getSpeed(nodeCurrentCTActor)
 			local bHasSkipTurn = getEffectNode(nodeCurrentCTActor, "skipturn", true)
 			if not bHasSkipTurn then
-				displayChatMessage("This actor is a mount being ridden. Speed: " .. sSpeed .. sMountActions, true)
+				displayChatMessage("This actor is a mount being ridden. Speed: " .. sSpeed .. sMountActions, not checkVerbosityMax())
 			end
 		end
 		return
@@ -689,7 +702,7 @@ function processMountChatCommand(sParams, bUncontrolledMount)
 	end
 
 	if not checkVerbosityOff() then
-		displayChatMessage(sCoreMountRules .. sRuleDetail, true)
+		displayChatMessage(sCoreMountRules .. sRuleDetail, not checkVerbosityMax())
 	end
 end
 
