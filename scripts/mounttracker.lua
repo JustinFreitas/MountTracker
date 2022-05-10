@@ -627,7 +627,7 @@ function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated
 	expireMountOrRiderEffectOnCTNode(nodeMount)
 	if not checkVerbosityOff() then
 		-- TODO: Calculate the movement needed w/ getSpeed() but it only works as a number on pcs, string on npc that would need to be parsed (comma separated walk is default with no prefix).
-		displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", true)
+		displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", not checkVerbosityMax())
 	end
 end
 

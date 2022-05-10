@@ -16,12 +16,11 @@ function onInit()
 end
 
 function onMenuSelection(selection, subselection)
-    -- Only process client MountTracker notifications if it's our turn (we control the activeCT node) or it's a friend's turn.
-    if ActorManager.getFaction(vSource) == "friend"
-        or CombatManager.getCurrentUserCT() == CombatManager.getActiveCT() then
+    local nodeCT = getDatabaseNode()
 
-        local nodeCT = getDatabaseNode()
-        if not nodeCT then return end
+-- Only process client MountTracker notifications if it's our turn (we control the activeCT node) or it's a friend's turn.
+    if nodeCT and (ActorManager.getFaction(nodeCT) == "friend"
+                   or CombatManager.getCurrentUserCT() == CombatManager.getActiveCT()) then
 
         if selection == 3 then
             if subselection == 2 then
