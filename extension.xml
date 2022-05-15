@@ -23,6 +23,7 @@
 		<includefile source="campaign/ct_client.xml" />
 
 		<string name="option_header_mounttracker">MountTracker (GM)</string>
+		<string name="option_label_MOUNTTRACKER_CLIENT_CHAT">Chat: Show to Player</string>
 		<string name="option_label_MOUNTTRACKER_CONTROLLED_MOUNT_SKIP">CT: Skip Controlled Mount Turn</string>
 		<string name="option_label_MOUNTTRACKER_ENFORCE_SIZE">CT: Enforce Size</string>
 		<string name="option_label_MOUNTTRACKER_VERBOSE">Chat: Verbose Rule Reminders</string>

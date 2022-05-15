@@ -36,7 +36,9 @@ function onMenuSelection(selection, subselection)
 	-- 	MountTracker.deletePairedEffectNode(nodeCT)
 	-- end
 
-    super.onMenuSelection(selection, subselection)
+    if super and super.onMenuSelection then
+        super.onMenuSelection(selection, subselection)
+    end
 end
 
 function dismount()
@@ -48,6 +50,9 @@ function mount(nodeCT, bUncontrolledMount)
 end
 
 function delete()
-    super.delete()
+    if super and super.delete then
+        super.delete()
+    end
+
     MountTracker.clearAllMountTrackerDataFromCT(true)
 end

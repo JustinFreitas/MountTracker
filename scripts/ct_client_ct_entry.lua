@@ -5,7 +5,7 @@ function onInit()
 
     local nPosition = 3
     while(not pcall(registerMenuItem, "MountTracker", "white_mount_icon", nPosition)
-          and nPosition <= 8)
+            and nPosition <= 8)
     do
         nPosition = nPosition + 1
     end
@@ -19,9 +19,7 @@ function onMenuSelection(selection, subselection)
     local nodeCT = getDatabaseNode()
 
 -- Only process client MountTracker notifications if it's our turn (we control the activeCT node) or it's a friend's turn.
-    if nodeCT and (ActorManager.getFaction(nodeCT) == "friend"
-                   or CombatManager.getCurrentUserCT() == CombatManager.getActiveCT()) then
-
+    if nodeCT and CombatManager.getCurrentUserCT() == CombatManager.getActiveCT() then
         if selection == 3 then
             if subselection == 2 then
                 notifyMount(nodeCT, false)

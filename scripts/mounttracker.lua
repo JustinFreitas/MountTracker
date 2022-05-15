@@ -6,16 +6,17 @@ LABEL = "label"
 MAX = "max"
 MOUNT = "mount"
 MOUNT_ACTIONS = " It moves as you direct it, and it has only three action options: Dash, Disengage, and Dodge. If the mount provokes an opportunity attack while you're on it, the attacker can target you or the mount."
+MOUNTTRACKER_CLIENT_CHAT = "MOUNTTRACKER_CLIENT_CHAT"
 MOUNTTRACKER_CONTROLLED_MOUNT_SKIP = "MOUNTTRACKER_CONTROLLED_MOUNT_SKIP"
 MOUNTTRACKER_ENFORCE_SIZE = "MOUNTTRACKER_ENFORCE_SIZE"
 MOUNTTRACKER_VERBOSE = "MOUNTTRACKER_VERBOSE"
 OFF = "off"
 ON = "on"
-OOB_MSGTYPE_ATTACKFROMMOUNT = "attackfrommount"
-OOB_MSGTYPE_MOUNT = "mount"
-OOB_MSGTYPE_DISMOUNT = "dismount"
+OOB_MSGTYPE_ATTACKFROMMOUNT = "mt_attackfrommount"
+OOB_MSGTYPE_MOUNT = "mt_mount"
+OOB_MSGTYPE_DISMOUNT = "mt_dismount"
 PRONE_RULES = "If an effect moves your mount against its will while you're on it, you must succeed on a DC 10 Dexterity saving throw or fall off the mount, landing prone in a space within 5 feet of it. If you're knocked prone while mounted, you must make the same saving throw. If your mount is knocked prone, you can use your reaction to dismount it as it falls and land on your feet. Otherwise, you are dismounted and fall prone in a space within 5 feet it."
-SECRET = true
+SIZE_GARGANTUAN = "Gargantuan"
 SIZE_HUGE = "Huge"
 SIZE_LARGE = "Large"
 SIZE_MEDIUM = "Medium"
@@ -34,6 +35,8 @@ function onInit()
 	OptionsManager.registerOption2(MOUNTTRACKER_CONTROLLED_MOUNT_SKIP, false, option_header, "option_label_MOUNTTRACKER_CONTROLLED_MOUNT_SKIP", option_entry_cycler,
 	{ labels = option_val_off, values = OFF, baselabel = "option_val_on", baseval = ON, default = ON })
 	OptionsManager.registerOption2(MOUNTTRACKER_ENFORCE_SIZE, false, option_header, "option_label_MOUNTTRACKER_ENFORCE_SIZE", option_entry_cycler,
+	{ labels = option_val_off, values = OFF, baselabel = "option_val_on", baseval = ON, default = ON })
+	OptionsManager.registerOption2(MOUNTTRACKER_CLIENT_CHAT, false, option_header, "option_label_MOUNTTRACKER_CLIENT_CHAT", option_entry_cycler,
 	{ labels = option_val_off, values = OFF, baselabel = "option_val_on", baseval = ON, default = ON })
 	OptionsManager.registerOption2(MOUNTTRACKER_VERBOSE, false, option_header, "option_label_MOUNTTRACKER_VERBOSE", option_entry_cycler,
 	{ baselabel = "option_val_max", baseval = MAX, labels = "option_val_standard|" .. option_val_off, values = "standard|" .. OFF, default = MAX })
@@ -85,6 +88,10 @@ function addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
 			end
 		end
 	end
+end
+
+function checkClientChat()
+	return OptionsManager.isOption(MOUNTTRACKER_CLIENT_CHAT, ON)
 end
 
 -- Alphebetical list of functions below (onInit() above was an exception)
@@ -190,7 +197,7 @@ function displayDebilitatingConditionChatMessage(vActor, sCondition)
 	local sText = string.format("'%s' is %s, can't mount/dismount.",
 								ActorManager.getDisplayName(vActor),
 								sCondition)
-	displayChatMessage(sText, SECRET)
+	displayChatMessage(sText, not checkClientChat())
 end
 
 function displayProcessAttackFromMount(rSource, rTarget, sRollDesc)
@@ -236,7 +243,7 @@ function displayTableIfNonEmpty(aTable)
 	aTable = validateTableOrNew(aTable)
 	if #aTable > 0 then
 		local sDisplay = table.concat(aTable, "\r")
-		displayChatMessage(sDisplay, true)
+		displayChatMessage(sDisplay, not checkClientChat())
 	end
 end
 
@@ -469,6 +476,10 @@ function isMountLargerThanRider(sMount, sRider)
 		return not (sMount == SIZE_TINY or sMount == SIZE_SMALL or sMount == SIZE_MEDIUM or sMount == SIZE_LARGE or sMount == SIZE_HUGE)
 	end
 
+	if sRider == SIZE_GARGANTUAN then
+		return false
+	end
+
 	return false
 end
 
@@ -553,7 +564,8 @@ function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
 		if hasRider(nodeMount, rCurrentActor.sName) then
 			local sSpeed = getSpeed(nodeMount)
 			-- Any mounted combat rules or detail needed on the rider's turn.
-			displayChatMessage("This actor is riding a mount. Speed: " .. sSpeed .. sMountActions, not checkVerbosityMax())
+			local sMsg = string.format("'%s' is riding a mount (%s). Speed: %s%s", rCurrentActor.sName, sMountName, sSpeed, sMountActions)
+			displayChatMessage(sMsg, not checkClientChat())
 		end
 
 		return
@@ -564,9 +576,11 @@ function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
 			local sSpeed = getSpeed(nodeCurrentCTActor)
 			local bHasSkipTurn = getEffectNode(nodeCurrentCTActor, "skipturn", true)
 			if not bHasSkipTurn then
-				displayChatMessage("This actor is a mount being ridden. Speed: " .. sSpeed .. sMountActions, not checkVerbosityMax())
+				local sMsg = string.format("'%s' is a mount being ridden by '%s'. Speed: %s%s", rCurrentActor.sName, sRiderName, sSpeed, sMountActions)
+				displayChatMessage(sMsg, not checkClientChat())
 			end
 		end
+
 		return
 	end
 end
@@ -595,14 +609,18 @@ function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated
 
 	if not nodeCT then return end
 
-	if getRiderEffectNode(nodeCT) then
-		displayChatMessage("The actor is a mount, dismount should occur on the rider's turn.", true)
+	local sCurrentActorName = ActorManager.getDisplayName(nodeCT)
+	local nodeRiderEffect = getRiderEffectNode(nodeCT)
+	if nodeRiderEffect then
+		local sMsg = string.format("The current actor (%s) is a mount, dismount should occur on the rider's (%s) turn.", sCurrentActorName, getMountOrRiderValueFromEffectNode(nodeRiderEffect))
+		displayChatMessage(sMsg, not checkClientChat())
 		return
 	end
 
 	local nodeMountEffect = getMountEffectNode(nodeCT)
 	if not nodeMountEffect then
-		displayChatMessage("The actor does not have a mount.", true)
+		local sMsg = string.format("The current actor (%s) does not have a mount.", sCurrentActorName)
+		displayChatMessage(sMsg, not checkClientChat())
 		return
 	end
 
@@ -627,7 +645,7 @@ function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated
 	expireMountOrRiderEffectOnCTNode(nodeMount)
 	if not checkVerbosityOff() then
 		-- TODO: Calculate the movement needed w/ getSpeed() but it only works as a number on pcs, string on npc that would need to be parsed (comma separated walk is default with no prefix).
-		displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", not checkVerbosityMax())
+		displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", not checkClientChat())
 	end
 end
 
@@ -653,28 +671,33 @@ end
 function processMountChatCommand(sMountName, bUncontrolledMount)
 	local nodeRider = CombatManager.getActiveCT()
 	if not nodeRider then
-		displayChatMessage("Combat is not active, which is required for MountTracker processing.", true)
+		displayChatMessage("Combat is not active, which is required for MountTracker processing.", not checkClientChat())
 		return
 	end
 
-	local nodeMount = getMountOrRiderCombatTrackerNode(sMountName);
+	local sRiderName = ActorManager.getDisplayName(nodeRider)
+	local nodeMount = getMountOrRiderCombatTrackerNode(sMountName)
 	if nodeRider == nodeMount then
-		displayChatMessage("The rider and mount must be unique names.", true)
+		local sMsg = string.format("The rider and mount (%s) must be unique names.", ActorManager.getDisplayName(nodeRider))
+		displayChatMessage(sMsg, not checkClientChat())
 		return
 	end
 
 	if not nodeMount or not sMountName or sMountName == "" then
-		displayChatMessage("The mount name must be specified and match an npc/pc mount in the Combat Tracker.", true)
+		displayChatMessage("The mount name must be specified and match an npc/pc mount in the Combat Tracker.", not checkClientChat())
 		return
 	end
+
+	sMountName = ActorManager.getDisplayName(nodeMount)
 
 	local nodeMountEffect = getMountEffectNode(nodeRider)
 	if nodeMountEffect then
 		-- Check mount validity.
 		local sEffectMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
 		local nodeMountOfEffectRider = getMountOrRiderCombatTrackerNode(sEffectMountName)
-		if hasRider(nodeMountOfEffectRider, ActorManager.getDisplayName(nodeRider)) then
-			displayChatMessage("The current actor (rider) already has a mount.", true)
+		if hasRider(nodeMountOfEffectRider, sRiderName) then
+			local sMsg = string.format("'%s' already has a mount.", sRiderName)
+			displayChatMessage(sMsg, not checkClientChat())
 			return
 		end
 	end
@@ -685,13 +708,14 @@ function processMountChatCommand(sMountName, bUncontrolledMount)
 		local sEffectRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
 		local nodeRiderOfEffectMount = getMountOrRiderCombatTrackerNode(sEffectRiderName)
 		if hasMount(nodeRiderOfEffectMount, sMountName) then
-			displayChatMessage("The mount already has a rider.", true)
+			local sMsg = string.format("The mount (%s) already has a rider (%s).", sMountName, sEffectRiderName)
+			displayChatMessage(sMsg, not checkClientChat())
 			return
 		end
 	end
 
 	if isTrap(nodeRider) or isTrap(nodeMount) then
-		displayChatMessage("Traps cannot mount or be mounted.", true)
+		displayChatMessage("Traps cannot mount or be mounted.", not checkClientChat())
 		return
 	end
 
@@ -706,10 +730,12 @@ function processMountChatCommand(sMountName, bUncontrolledMount)
 	local sSizeMount = getSize(nodeMount)
 	if checkEnforceSizeRule() then
 		if not sSizeRider or sSizeRider == "" or not sSizeMount or sSizeMount == "" then
-			displayChatMessage("The rider and mount must have a size set.", true)
+			local sMsg = string.format("The rider (%s) and mount (%s) must have a size set.", sRiderName, sMountName)
+			displayChatMessage(sMsg, not checkClientChat())
 			return
 		elseif not isMountLargerThanRider(sSizeMount, sSizeRider) then
-			displayChatMessage("The mount has to be at least one size larger than the rider.", true)
+			local sMsg = string.format("The mount (%s, %s) has to be at least one size larger than the rider (%s, %s).", sMountName, sSizeMount, sRiderName, sSizeRider)
+			displayChatMessage(sMsg, not checkClientChat())
 			return
 		end
 	end
@@ -733,11 +759,17 @@ function processMountChatCommand(sMountName, bUncontrolledMount)
 							"rush to attack and devour a badly injured foe, or otherwise act against your wishes."
 		end
 	else
-		local sOldInit = tostring(DB.getValue(nodeMount, INIT_RESULT, 0))
+		local nOldInit = DB.getValue(nodeMount, INIT_RESULT, 0)
+		local sOldInit = tostring(nOldInit)
 		local nNewInit = DB.getValue(nodeRider, INIT_RESULT, 0)
 		local sNewInit = tostring(nNewInit)
-		DB.setValue(nodeMount, INIT_RESULT, "number", nNewInit)
-		sCoreMountRules = "Changed the mount initiative from " .. sOldInit .. " to " .. sNewInit .. ".\r\r" .. sCoreMountRules
+		if nOldInit ~= nNewInit then
+			DB.setValue(nodeMount, INIT_RESULT, "number", nNewInit)
+			sCoreMountRules = string.format("Changed the mount (%s) initiative from %s to %s.\r\r%s", ActorManager.getDisplayName(nodeMount), sOldInit, sNewInit, sCoreMountRules)
+		else
+			sCoreMountRules = string.format("Initiative of mount (%s) was not changed.\r\r%s", ActorManager.getDisplayName(nodeMount), sCoreMountRules)
+		end
+
 		if checkVerbosityMax() then
 			sRuleDetail = "\r\rThe initiative of a controlled mount changes to match yours when you mount it. It moves as you direct it, " ..
 							"and it has only three action options: Dash, Disengage, and Dodge. A controlled mount can move and act even on the turn that you mount it."
@@ -745,7 +777,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount)
 	end
 
 	if not checkVerbosityOff() then
-		displayChatMessage(sCoreMountRules .. sRuleDetail, not checkVerbosityMax())
+		displayChatMessage(sCoreMountRules .. sRuleDetail, not checkClientChat())
 	end
 end
 
