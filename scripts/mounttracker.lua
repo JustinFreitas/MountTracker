@@ -2,7 +2,9 @@
 
 EFFECTS = "effects"
 INIT_RESULT = "initresult"
+IS_FGC = false
 LABEL = "label"
+LAST_DRAG_INFO = nil
 MAX = "max"
 MOUNT = "mount"
 MOUNT_ACTIONS = " It moves as you direct it, and it has only three action options: Dash, Disengage, and Dodge. If the mount provokes an opportunity attack while you're on it, the attacker can target you or the mount."
@@ -26,9 +28,11 @@ UCMOUNT = "ucmount"
 USER_ISHOST = false
 
 ActionAttack_onAttack = nil
+CombatManager_onDrop = nil
 EffectManager_addEffect = nil
 
 function onInit()
+	IS_FGC = checkFGC()
 	local option_header = "option_header_mounttracker"
 	local option_val_off = "option_val_off"
 	local option_entry_cycler = "option_entry_cycler"
@@ -59,6 +63,9 @@ function onInit()
 
 		EffectManager_addEffect = EffectManager.addEffect
 		EffectManager.addEffect = addEffect
+
+		CombatManager_onDrop = CombatManager.onDrop
+		CombatManager.onDrop = onDrop
 	end
 
 	ActionAttack_onAttack = ActionAttack.onAttack
@@ -101,6 +108,13 @@ end
 
 function checkEnforceSizeRule()
 	return OptionsManager.isOption(MOUNTTRACKER_ENFORCE_SIZE, ON)
+end
+
+function checkFGC()
+	local nMajor, nMinor, nPatch = Interface.getVersion()
+	if nMajor <= 2 then return true end
+	if nMajor == 3 and nMinor <= 2 then return true end
+	return nMajor == 3 and nMinor == 3 and nPatch <= 15
 end
 
 function checkVerbosityMax()
@@ -414,7 +428,7 @@ end
 function handleDismount(msgOOB)
 	if not msgOOB or not msgOOB.type or msgOOB.type ~= OOB_MSGTYPE_DISMOUNT then return end
 
-	processDismountChatCommand(ActorManager.getDisplayName(CombatManager.getActiveCT()))
+	processDismountChatCommand(msgOOB.sActorName)
 end
 
 function hasEffectColonValue(nodeEffect, sEffect, sValue)
@@ -525,6 +539,7 @@ function notifyDismount()
 	local msgOOB = {}
 	msgOOB.type = OOB_MSGTYPE_DISMOUNT
 	msgOOB.sUsername = User.getUsername()
+	msgOOB.sActorName = ActorManager.getDisplayName(CombatManager.getActiveCT())
 
 	Comm.deliverOOBMessage(msgOOB, "")
 end
@@ -539,6 +554,32 @@ function notifyMount(sTarget, bUncontrolledMount)
 	msgOOB.sTargetCTNode = sTarget
 
 	Comm.deliverOOBMessage(msgOOB, "")
+end
+
+function onDrop(nodetype, nodename, draginfo)
+	-- I don't know why this weird hack is needed, but it prevents the drop from firing twice.  It is FGC only.
+	if IS_FGC then
+		if LAST_DRAG_INFO == draginfo and
+		   LAST_NODE_NAME == nodename and
+		   LAST_NODE_TYPE == nodetype then
+			LAST_DRAG_INFO = nil
+			LAST_NODE_NAME = nil
+			LAST_NODE_TYPE = nil
+			return
+		end
+
+		LAST_DRAG_INFO = draginfo
+		LAST_NODE_NAME = nodename
+		LAST_NODE_TYPE = nodetype
+	end
+
+	local nodeSourceCT = draginfo.getCustomData()
+	local nodeTargetCT = CombatManager.getCTFromNode(nodename)
+	if nodeSourceCT and nodeTargetCT then
+		processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), Input.isControlPressed(), nodeSourceCT)
+	end
+
+	CombatManager_onDrop(nodetype, nodename, draginfo)
 end
 
 -- Attack roll handler
@@ -596,8 +637,8 @@ end
 
 -- Handler for the 'mount' slash commands in chat.  Needs to handle the uncontrolled subcommand (i.e. /mount uncontrolled [MountName])
 -- TODO: If target mount/npc is intelligent (what int value? 6? 8?), it's always uncontrolled.
-function processControlledMountChatCommand(_, sParams)
-	processMountChatCommand(sParams, false)
+function processControlledMountChatCommand(_, sMountName)
+	processMountChatCommand(sMountName, false)
 end
 
 -- Handler for the 'dismount' slash commands in chat.
@@ -668,11 +709,14 @@ function processHostOnlySubcommands(sSubcommand)
 	return sSubcommand
 end
 
-function processMountChatCommand(sMountName, bUncontrolledMount)
-	local nodeRider = CombatManager.getActiveCT()
+function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplicit)
+	local nodeRider = nodeRiderExplicit
 	if not nodeRider then
-		displayChatMessage("Combat is not active, which is required for MountTracker processing.", not checkClientChat())
-		return
+		nodeRider = CombatManager.getActiveCT()
+		if not nodeRider then
+			displayChatMessage("Combat is not active, which is required for MountTracker processing.", not checkClientChat())
+			return
+		end
 	end
 
 	local sRiderName = ActorManager.getDisplayName(nodeRider)
@@ -697,6 +741,17 @@ function processMountChatCommand(sMountName, bUncontrolledMount)
 		local nodeMountOfEffectRider = getMountOrRiderCombatTrackerNode(sEffectMountName)
 		if hasRider(nodeMountOfEffectRider, sRiderName) then
 			local sMsg = string.format("'%s' already has a mount.", sRiderName)
+			displayChatMessage(sMsg, not checkClientChat())
+			return
+		end
+	end
+
+	local nodeRiderEffectOnRider = getRiderEffectNode(nodeRider)
+	if nodeRiderEffectOnRider then
+		local sEffectRiderNameOnRider = getMountOrRiderValueFromEffectNode(nodeRiderEffectOnRider)
+		local nodeRiderOfEffectRiderOnRider = getMountOrRiderCombatTrackerNode(sEffectRiderNameOnRider)
+		if hasMount(nodeRiderOfEffectRiderOnRider, sRiderName) then
+			local sMsg = string.format("'%s' is a mount and can't mount another.", sRiderName)
 			displayChatMessage(sMsg, not checkClientChat())
 			return
 		end

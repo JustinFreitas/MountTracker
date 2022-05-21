@@ -25,7 +25,7 @@ function onMenuSelection(selection, subselection)
         elseif subselection == 3 then
             mount(nodeCT, true)
         elseif subselection == 5 then
-            dismount()
+            dismount(nodeCT)
         end
 
         return
@@ -41,8 +41,8 @@ function onMenuSelection(selection, subselection)
     end
 end
 
-function dismount()
-    MountTracker.processDismountChatCommand()
+function dismount(nodeCT)
+    MountTracker.processDismountChatCommand(nil, ActorManager.getDisplayName(nodeCT))
 end
 
 function mount(nodeCT, bUncontrolledMount)
