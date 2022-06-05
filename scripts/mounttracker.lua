@@ -91,7 +91,7 @@ function addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
 			end
 
 			if not checkVerbosityOff() then
-				displayChatMessage(PRONE_RULES, not checkVerbosityMax())
+				displayChatMessage(PRONE_RULES, not checkClientChat())
 			end
 		end
 	end

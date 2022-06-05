@@ -4,7 +4,7 @@
 	<properties>
 		<name>Feature: MountTracker</name>
 		<version>1.0</version>
-		<loadorder>997</loadorder>
+		<loadorder>990</loadorder>
 		<author>Justin Freitas</author>
 		<description>Tracks the mount state of a CT actor with a specific effect and some appropriate chat text information regarding rules around some actions.</description>
 		<ruleset>
