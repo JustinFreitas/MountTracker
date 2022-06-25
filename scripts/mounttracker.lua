@@ -64,8 +64,13 @@ function onInit()
 		EffectManager_addEffect = EffectManager.addEffect
 		EffectManager.addEffect = addEffect
 
-		CombatManager_onDrop = CombatManager.onDrop
-		CombatManager.onDrop = onDrop
+		if CombatDropManager then
+			CombatManager_onDrop = CombatDropManager.onLegacyDropEvent
+			CombatDropManager.onLegacyDropEvent = onDrop
+		else
+			CombatManager_onDrop = CombatManager.onDrop
+			CombatManager.onDrop = onDrop
+		end
 	end
 
 	ActionAttack_onAttack = ActionAttack.onAttack
@@ -214,13 +219,14 @@ function displayDebilitatingConditionChatMessage(vActor, sCondition)
 	displayChatMessage(sText, not checkClientChat())
 end
 
-function displayProcessAttackFromMount(rSource, rTarget, sRollDesc)
+function displayProcessAttackFromMount(rSource, rTarget, rRoll)
 	-- if no source or no roll then exit, skipping StealthTracker processing.
 	if not rSource or not rSource.sCTNode or rSource.sCTNode == "" then return end
 
+	local sRollDesc = rRoll.sDesc
 	if not USER_ISHOST then
 		-- For clients notify of an action from mount and then exit.  Host handler will pick up message and run code after this block.
-		notifyAttackFromMount(rSource.sCTNode, (rTarget and rTarget.sCTNode) or "", sRollDesc)
+		notifyAttackFromMount(rSource.sCTNode, (rTarget and rTarget.sCTNode) or "", rRoll)
 		return
 	end
 
@@ -236,17 +242,19 @@ function displayProcessAttackFromMount(rSource, rTarget, sRollDesc)
 		end
 	end
 
-	local nodeTarget = ActorManager.getCTNode(rTarget)
-	if nodeTarget then
-		if getRiderEffectNode(nodeTarget) or getMountEffectNode(nodeTarget) then
-			insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Target is a mounted combatant pair, special rules apply for prone and forced movement.")
+	if CombatDropManager == nil or isHit(rRoll) then
+		local nodeTarget = ActorManager.getCTNode(rTarget)
+		if nodeTarget then
+			if getRiderEffectNode(nodeTarget) or getMountEffectNode(nodeTarget) then
+				insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Target is a mounted combatant pair, special rules apply for prone and forced movement.")
 
-			if sRollDesc and sRollDesc:match("%[OPPORTUNITY%]") then
-				insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "The attacker can choose the mount or rider as the target of this opportunity attack.")
+				if sRollDesc and sRollDesc:match("%[OPPORTUNITY%]") then
+					insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "The attacker can choose the mount or rider as the target of this opportunity attack.")
+				end
+
+				insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Movement against will or rider knocked prone is DC 10 Dex save or fall off mount and prone w/in 5 ft. " ..
+																	"If mount knocked prone, rider reaction to dismount and land on feet else dismounted and prone w/in 5 ft.")
 			end
-
-			insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Movement against will or rider knocked prone is DC 10 Dex save or fall off mount and prone w/in 5 ft. " ..
-																"If mount knocked prone, rider reaction to dismount and land on feet else dismounted and prone w/in 5 ft.")
 		end
 	end
 
@@ -412,7 +420,14 @@ function handleAttackFromMount(msgOOB)
 		if not rSource then return end
 
 		local rTarget = ActorManager.resolveActor(msgOOB.sTargetCTNode)
-		displayProcessAttackFromMount(rSource, rTarget, msgOOB.sRollDesc)
+		local rRoll = {}
+		rRoll.sDesc = msgOOB.sRollDesc
+		rRoll.aMessages = {}
+		if msgOOB.sIsHit == "true" then
+			table.insert(rRoll.aMessages, "HIT")
+		end
+
+		displayProcessAttackFromMount(rSource, rTarget, rRoll)
 	end
 end
 
@@ -469,6 +484,20 @@ function insertFormattedTextWithSeparatorIfNonEmpty(aTable, sFormattedText)
 	table.insert(aTable, sFormattedText)
 end
 
+function isHit(rRoll)
+	if not rRoll or not rRoll.aMessages then return false end
+
+	local isHit = false
+	for _, value in pairs(rRoll.aMessages) do
+		if value:match("HIT") then
+			isHit = true
+			break
+		end
+	end
+
+	return isHit
+end
+
 function isMountLargerThanRider(sMount, sRider)
 	if sRider == SIZE_MEDIUM then
 		return not (sMount == SIZE_TINY or sMount == SIZE_SMALL or sMount == SIZE_MEDIUM)
@@ -520,7 +549,7 @@ function isTrap(nodeCT)
 end
 
 -- Function to notify the host of an attack from a mounted combatant.
-function notifyAttackFromMount(sSourceCTNode, sTargetCTNode, sRollDesc)
+function notifyAttackFromMount(sSourceCTNode, sTargetCTNode, rRoll)
 	if not sSourceCTNode or not sTargetCTNode then return end
 
 	-- Setup the OOB message object, including the required type.
@@ -530,7 +559,8 @@ function notifyAttackFromMount(sSourceCTNode, sTargetCTNode, sRollDesc)
 	-- Capturing the username allows for the effect to be built so that it can be deleted by the client.
 	msgOOB.sSourceCTNode = sSourceCTNode
 	msgOOB.sTargetCTNode = sTargetCTNode
-	msgOOB.sRollDesc = sRollDesc
+	msgOOB.sRollDesc = rRoll.sDesc
+	msgOOB.sIsHit = tostring(isHit(rRoll))
 	Comm.deliverOOBMessage(msgOOB, "")
 end
 
@@ -574,7 +604,13 @@ function onDrop(nodetype, nodename, draginfo)
 	end
 
 	local nodeSourceCT = draginfo.getCustomData()
-	local nodeTargetCT = CombatManager.getCTFromNode(nodename)
+	local nodeTargetCT
+	if CombatDropManager then
+		nodeTargetCT = CombatManager.getCTFromNode(nodename.sCTNode)
+	else
+		nodeTargetCT = CombatManager.getCTFromNode(nodename)
+	end
+
 	if nodeSourceCT and nodeTargetCT then
 		processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), Input.isControlPressed(), nodeSourceCT)
 	end
@@ -585,7 +621,7 @@ end
 -- Attack roll handler
 function onRollAttack(rSource, rTarget, rRoll)
 	ActionAttack_onAttack(rSource, rTarget, rRoll)
-	displayProcessAttackFromMount(rSource, rTarget, rRoll.sDesc)
+	displayProcessAttackFromMount(rSource, rTarget, rRoll)
 end
 
 -- This function is one that the Combat Tracker calls if present at the start of a creatures turn.  Wired up in onInit() for the host only.
