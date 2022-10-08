@@ -605,14 +605,16 @@ function onDrop(nodetype, nodename, draginfo)
 
 	local nodeSourceCT = draginfo.getCustomData()
 	local nodeTargetCT
-	if CombatDropManager then
-		nodeTargetCT = CombatManager.getCTFromNode(nodename.sCTNode)
-	else
-		nodeTargetCT = CombatManager.getCTFromNode(nodename)
-	end
-
-	if nodeSourceCT and nodeTargetCT then
-		processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), Input.isControlPressed(), nodeSourceCT)
+	if nodename then
+		if CombatDropManager then
+			nodeTargetCT = CombatManager.getCTFromNode(nodename.sCTNode)
+		else
+			nodeTargetCT = CombatManager.getCTFromNode(nodename)
+		end
+	
+		if nodeSourceCT and nodeTargetCT then
+			processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), Input.isControlPressed(), nodeSourceCT)
+		end
 	end
 
 	CombatManager_onDrop(nodetype, nodename, draginfo)

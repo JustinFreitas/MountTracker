@@ -31,11 +31,6 @@ function onMenuSelection(selection, subselection)
         return
     end
 
-    -- if selection == 6 and subselection == 7 then
-    --     -- Delete any corresponding rider/mount effect.
-	-- 	MountTracker.deletePairedEffectNode(nodeCT)
-	-- end
-
     if super and super.onMenuSelection then
         super.onMenuSelection(selection, subselection)
     end
@@ -54,5 +49,7 @@ function delete()
         super.delete()
     end
 
-    MountTracker.clearAllMountTrackerDataFromCT(true)
+    if MountTracker then
+        MountTracker.clearAllMountTrackerDataFromCT(true)
+    end
 end
