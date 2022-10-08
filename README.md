@@ -16,14 +16,14 @@ Features:
 - Works with unidentified actors in the Combat Tracker.
 - Has a chat command interface for /mount, /dismount, /clear.
 - Has a radial menu interface for mount/dismount that is player accessible and works for the current actor in the Combat Tracker (that's where the chosen menu action will be applied).
-	
+- If attacking from a mount, display a chat message with any rules restrictions/guidance.
+
 Future Enhancements:
 - Only Carried or Equiped Mounts (shouldn't it also be required to be in the CT?) will be considered.
 - The standard mount types will be accounted for as well as anything that has a (mount) entry somewhere in the line.  For example:  MyUniqueCreature (mount)
 - Any, the GM (and probably player also) can issue a mount/dismount console command (i.e. /mount or /dismount) to trigger the functionality.  It will set an effect and output chat info that will be different for active vs inactive combat.
 - Set the initiative of the mount NPC actor in the Combat Tracker at time of command if the name of the NPC is supplied as a command argument (i.e. /mount Warhorse) and doing that would set the init of warhorse to rider init - .1.  If this is an optional rule, have an option for it in settings.
 - If attacking a mounted actor (has Mount effect), choose to attack mount or rider chat message (or even issue the roll against the new CT target as a passthrough).
-- If attacking from a mount, display a chat message with any rules restrictions/guidance.
 - On turn start, recognize if the turn is on the mount CT actor.  If so, show the mount status and any other pertinent information.
 - On init change or any turn start, scrub entire CT for Rider/Mount init fixups.
 - If not in combat, don't show the combat information when mounting/dismounting.
