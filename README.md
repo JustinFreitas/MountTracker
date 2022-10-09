@@ -19,6 +19,7 @@ Features:
 - If attacking from a mount, display a chat message with any rules restrictions/guidance.
 
 Future Enhancements:
+- Add a little button to the CT actor so players/DM can click it to mount/dismount.
 - Only Carried or Equiped Mounts (shouldn't it also be required to be in the CT?) will be considered.
 - The standard mount types will be accounted for as well as anything that has a (mount) entry somewhere in the line.  For example:  MyUniqueCreature (mount)
 - Any, the GM (and probably player also) can issue a mount/dismount console command (i.e. /mount or /dismount) to trigger the functionality.  It will set an effect and output chat info that will be different for active vs inactive combat.
