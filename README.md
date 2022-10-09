@@ -6,7 +6,7 @@ MountTracker v1.0, by Justin Freitas
 
 ReadMe and Usage Notes
 
-The purpose of this Fantasy Grounds 5e extension is to allow for Combat Tracker tracking of an actors mount state along with outputting some helpful text in the chat regarding the mount state and associated rules. The GM can make associations via drag/drop of CT actors, CT radial menu, or chat commands.  Players can mount/dismount via the CT's right click radial menu.
+The purpose of this Fantasy Grounds 5e extension is to allow for Combat Tracker tracking of an actors mount state along with outputting some helpful SRD rule text (thanks OGL!) in the chat regarding the mount state and associated rules. The GM can make associations via drag/drop of CT actors, CT radial menu, or chat commands.  Players can mount/dismount via the CT's right click radial menu.
 
 Features:
 - When mounting, validation is performed where things like size checks are made (mount must be at least one size larger than rider), debilitating conditions are considered, and zero speed.
