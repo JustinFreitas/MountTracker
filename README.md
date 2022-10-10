@@ -6,26 +6,31 @@ MountTracker v1.0, by Justin Freitas
 
 ReadMe and Usage Notes
 
-The purpose of this Fantasy Grounds 5e extension is to allow for Combat Tracker tracking of an actors mount state along with outputting some helpful SRD rule text (thanks OGL!) in the chat regarding the mount state and associated rules. The GM can make associations via drag/drop of CT actors (drag the rider name to the mount, not the portrait), right click CT radial menu, or chat commands.  Players can mount/dismount via the CT's right click radial menu.
+The purpose of this Fantasy Grounds 5e extension is to allow for Combat Tracker tracking (via effects only) of an actors mount state along with outputting some helpful SRD rule text (thanks OGL!) in the chat regarding the mount state and associated rules. This includes a distinction between controlled and uncontrolled (aka independent) mounts for the purpose of clarity and also displaying the appropriate rule hints.  The GM can make mount associations via drag/drop of CT actors (drag the rider name to the mount, not the portrait) to a target mount, right click CT radial menu on a target mount (or for dismount), or chat commands to invoke the action.  Players can mount/dismount via the CT's right click radial menu.
 
 GM MountTracker Chat Commands:
 
 -Current actor MountTracker status:
-\/mt
+/mt
 or
-\/mounttracker
+/mounttracker
 
-- Clear all MountTracker effects from Combat Tracker:
-\/mt clear
+- Clear all MountTracker effects from Combat Tracker (manually deleting effects is always an option too):
+/mt clear
 or
-\/mounttracker clear
+/mounttracker clear
 
 - Have the current actor mount another actor as the rider:
-\/mount [TARGET_MOUNT]
-Ex. \/mount Warhorse
+/mount [TARGET_MOUNT]
+Ex. /mount Warhorse
 
 - Have the current actor (who is riding a mount) dismount its mount:
-\/dismount
+/dismount
+
+
+Combat Tracker Radial Menu:
+
+For the current Combat Tracker actor, the GM or the Player can right click a target actor to mount as a rider (or dismount if they are already riding).  In the radial menu, the Player can select between Controlled, Uncontrolled (Independent), and Dismount.
 
 
 Features:
