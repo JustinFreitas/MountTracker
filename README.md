@@ -34,7 +34,7 @@ Features:
 - It knows to consider debilitating conditions or speed of zero (i.e. grappled) when mounting/dismounting.
 - On the rider's turn, chat output is shown (optionally) that displays the mounted speed and some rule help for both controlled and uncontrolled/independent scenarios.
 - Works with unidentified actors in the Combat Tracker.
-- Has a chat command interface for /mount [TARGET_ACTOR] (controlled mount), /ucmount [TARGET_ACTOR] (uncontrolled/independent mount), /dismount (no target, affects current CT actor), /mt (current/mt clear.
+- Has a chat command interface for /mount [TARGET_ACTOR] (controlled mount), /ucmount [TARGET_ACTOR] (uncontrolled/independent mount), /dismount (no target, affects current CT actor), /mt clear.
 - Has a radial menu interface for mount/dismount that is player accessible and works for the current actor in the Combat Tracker (that's where the chosen menu action will be applied).
 - If attacking from a mount, display a chat message with any rules restrictions/guidance.
 - Options for chat verbosity, size enforcement, skipping controlled mount's turn via SKIPTURN.
