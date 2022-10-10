@@ -10,7 +10,7 @@ The purpose of this Fantasy Grounds 5e extension is to allow for Combat Tracker 
 
 GM MountTracker Chat Commands:
 
-- Current actor MountTracker status:
+--Current actor MountTracker status:
 /mt
 or
 /mounttracker
