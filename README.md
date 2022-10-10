@@ -10,22 +10,22 @@ The purpose of this Fantasy Grounds 5e extension is to allow for Combat Tracker 
 
 GM MountTracker Chat Commands:
 
-- Current actor MountTracker status:
-/mt
+-Current actor MountTracker status:
+\/mt
 or
-/mounttracker
+\/mounttracker
 
 - Clear all MountTracker effects from Combat Tracker:
-/mt clear
+\/mt clear
 or
-/mounttracker clear
+\/mounttracker clear
 
 - Have the current actor mount another actor as the rider:
-/mount [TARGET_MOUNT]
-Ex. /mount Warhorse
+\/mount [TARGET_MOUNT]
+Ex. \/mount Warhorse
 
 - Have the current actor (who is riding a mount) dismount its mount:
-/dismount
+\/dismount
 
 
 Features:
