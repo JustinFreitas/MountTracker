@@ -35,6 +35,7 @@ For the current Combat Tracker actor, the GM or the Player can right click a tar
 
 Features:
 - When mounting, validation is performed where things like size checks are made (mount must be at least one size larger than rider), debilitating conditions are considered, and zero speed.
+- Distinguishes between controlled and uncontrolled/independent mounts, selected at time of mount. Note: For GM CT actor drag/drop, holding control when dropping will be uncontrolled/independent.
 - On any action that involves mounted combat rules (i.e. mounting, dismounting, attacking from mount, being attacked while mounted, controlled or uncontrolled/independent), rule reminders will be output to the DM in the chat (verbosity set in options).
 - It knows to consider debilitating conditions or speed of zero (i.e. grappled) when mounting/dismounting.
 - On the rider's turn, chat output is shown (optionally) that displays the mounted speed and some rule help for both controlled and uncontrolled/independent scenarios.
