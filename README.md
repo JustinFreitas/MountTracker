@@ -2,7 +2,7 @@
 
 https://github.com/JustinFreitas/MountTracker
 
-MountTracker v1.0, by Justin Freitas
+MountTracker v1.1, by Justin Freitas
 
 ReadMe and Usage Notes
 
