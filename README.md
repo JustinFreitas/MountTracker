@@ -70,3 +70,4 @@ Future Enhancements:
 
 Changelist:
 - v1.0 - Initial version.
+- v1.1 - Changed the in-combat firing of the stealth functionality fromn onTurnStart to requestActivation.  Now, it works when you click the left CT bar to activate an actor that way (and still works when using the Next Actor button too).  Migrated over the build tool for consistency in building the extension output.
