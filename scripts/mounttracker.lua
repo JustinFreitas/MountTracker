@@ -29,6 +29,7 @@ USER_ISHOST = false
 
 ActionAttack_onAttack = nil
 CombatManager_onDrop = nil
+CombatManager_requestActivation = nil
 EffectManager_addEffect = nil
 
 function onInit()
@@ -48,7 +49,6 @@ function onInit()
 	USER_ISHOST = User.isHost()
 
 	if USER_ISHOST then
-		CombatManager.setCustomTurnStart(onTurnStartEvent)
 		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_ATTACKFROMMOUNT, handleAttackFromMount)
 		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_MOUNT, handleMount)
 		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_DISMOUNT, handleDismount)
@@ -71,6 +71,9 @@ function onInit()
 			CombatManager_onDrop = CombatManager.onDrop
 			CombatManager.onDrop = onDrop
 		end
+
+        CombatManager_requestActivation = CombatManager.requestActivation
+        CombatManager.requestActivation = requestActivation
 	end
 
 	ActionAttack_onAttack = ActionAttack.onAttack
@@ -611,7 +614,7 @@ function onDrop(nodetype, nodename, draginfo)
 		else
 			nodeTargetCT = CombatManager.getCTFromNode(nodename)
 		end
-	
+
 		if nodeSourceCT and nodeTargetCT then
 			processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), Input.isControlPressed(), nodeSourceCT)
 		end
@@ -624,44 +627,6 @@ end
 function onRollAttack(rSource, rTarget, rRoll)
 	ActionAttack_onAttack(rSource, rTarget, rRoll)
 	displayProcessAttackFromMount(rSource, rTarget, rRoll)
-end
-
--- This function is one that the Combat Tracker calls if present at the start of a creatures turn.  Wired up in onInit() for the host only.
-function onTurnStartEvent(nodeCurrentCTActor) -- arg is CT node
-	clearAllMountTrackerDataFromCT(true)
-	if checkVerbosityOff() then return end
-
-	local rCurrentActor = ActorManager.resolveActor(nodeCurrentCTActor)
-	local nodeMountEffect = getMountEffectNode(nodeCurrentCTActor)
-	local nodeRiderEffect = getRiderEffectNode(nodeCurrentCTActor)
-	local sMountActions = ""
-	if checkVerbosityMax() then sMountActions = MOUNT_ACTIONS end
-
-	if nodeMountEffect then
-		local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
-		local nodeMount = getMountOrRiderCombatTrackerNode(sMountName)
-		if hasRider(nodeMount, rCurrentActor.sName) then
-			local sSpeed = getSpeed(nodeMount)
-			-- Any mounted combat rules or detail needed on the rider's turn.
-			local sMsg = string.format("'%s' is riding a mount (%s). Speed: %s%s", rCurrentActor.sName, sMountName, sSpeed, sMountActions)
-			displayChatMessage(sMsg, not checkClientChat())
-		end
-
-		return
-	elseif nodeRiderEffect then
-		local sRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
-		local nodeRider = getMountOrRiderCombatTrackerNode(sRiderName)
-		if hasMount(nodeRider, rCurrentActor.sName) then
-			local sSpeed = getSpeed(nodeCurrentCTActor)
-			local bHasSkipTurn = getEffectNode(nodeCurrentCTActor, "skipturn", true)
-			if not bHasSkipTurn then
-				local sMsg = string.format("'%s' is a mount being ridden by '%s'. Speed: %s%s", rCurrentActor.sName, sRiderName, sSpeed, sMountActions)
-				displayChatMessage(sMsg, not checkClientChat())
-			end
-		end
-
-		return
-	end
 end
 
 -- Handler for the 'mt' slash commands in chat.
@@ -876,6 +841,45 @@ end
 
 function processUncontrolledMountChatCommand(_, sParams)
 	processMountChatCommand(sParams, true)
+end
+
+function requestActivation(nodeCurrentCTActor, bSkipBell)
+    CombatManager_requestActivation(nodeCurrentCTActor, bSkipBell)
+
+	clearAllMountTrackerDataFromCT(true)
+	if checkVerbosityOff() then return end
+
+	local rCurrentActor = ActorManager.resolveActor(nodeCurrentCTActor)
+	local nodeMountEffect = getMountEffectNode(nodeCurrentCTActor)
+	local nodeRiderEffect = getRiderEffectNode(nodeCurrentCTActor)
+	local sMountActions = ""
+	if checkVerbosityMax() then sMountActions = MOUNT_ACTIONS end
+
+	if nodeMountEffect then
+		local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
+		local nodeMount = getMountOrRiderCombatTrackerNode(sMountName)
+		if hasRider(nodeMount, rCurrentActor.sName) then
+			local sSpeed = getSpeed(nodeMount)
+			-- Any mounted combat rules or detail needed on the rider's turn.
+			local sMsg = string.format("'%s' is riding a mount (%s). Speed: %s%s", rCurrentActor.sName, sMountName, sSpeed, sMountActions)
+			displayChatMessage(sMsg, not checkClientChat())
+		end
+
+		return
+	elseif nodeRiderEffect then
+		local sRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
+		local nodeRider = getMountOrRiderCombatTrackerNode(sRiderName)
+		if hasMount(nodeRider, rCurrentActor.sName) then
+			local sSpeed = getSpeed(nodeCurrentCTActor)
+			local bHasSkipTurn = getEffectNode(nodeCurrentCTActor, "skipturn", true)
+			if not bHasSkipTurn then
+				local sMsg = string.format("'%s' is a mount being ridden by '%s'. Speed: %s%s", rCurrentActor.sName, sRiderName, sSpeed, sMountActions)
+				displayChatMessage(sMsg, not checkClientChat())
+			end
+		end
+
+		return
+	end
 end
 
 function setNodeWithEffect(nodeCT, sEffect, sValue)
