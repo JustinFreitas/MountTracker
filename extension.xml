@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
 <root version="3.3" release="8.1|CoreRPG:4.1">
-	<announcement text="MountTracker v1.1 FGC/FGU 5E, 4/29/23\r2021-2023 Justin Freitas" font="emotefont" icon="mount_icon" />
+	<announcement text="MountTracker v1.2 FGC/FGU 5E, 7/2/23\r2021-2023 Justin Freitas" font="emotefont" icon="mount_icon" />
 	<properties>
 		<name>Feature: MountTracker</name>
-		<version>1.1</version>
-		<loadorder>990</loadorder>
+		<version>1.2</version>
+		<loadorder>9990</loadorder>
 		<author>Justin Freitas</author>
 		<description>Tracks the mount state of a CT actor with a specific effect and some appropriate chat text information regarding rules around some actions.</description>
 		<ruleset>

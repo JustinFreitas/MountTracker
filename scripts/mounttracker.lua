@@ -205,7 +205,7 @@ end
 function displayChatMessage(sFormattedText, bSecret)
 	if not sFormattedText then return end
 
-	local msg = {font = "msgfont", icon = "mount_icon", secret = bSecret, text = sFormattedText}
+	local msg = {font = "msgfont", icon = "mount_icon", secret = false, text = sFormattedText}  -- secret true shows the cross eye icon, wasting space
 
 	-- deliverChatMessage() is a broadcast mechanism, addChatMessage() is local only.
 	if bSecret then
