@@ -2,7 +2,7 @@
 
 https://github.com/JustinFreitas/MountTracker
 
-MountTracker v1.2, by Justin Freitas
+MountTracker v1.3, by Justin Freitas
 
 ReadMe and Usage Notes
 
@@ -72,3 +72,4 @@ Changelist:
 - v1.0 - Initial version.
 - v1.1 - Changed the in-combat firing of the stealth functionality fromn onTurnStart to requestActivation.  Now, it works when you click the left CT bar to activate an actor that way (and still works when using the Next Actor button too).  Migrated over the build tool for consistency in building the extension output.
 - v1.2 - Updated the icon using Sir Motte's template.  Don't use crossed eye icon in chat messages.
+- v1.3 - Another icon update, this time 42px to conform to new theme style.
