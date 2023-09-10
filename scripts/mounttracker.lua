@@ -99,7 +99,7 @@ function addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
 			end
 
 			if not checkVerbosityOff() then
-				displayChatMessage(PRONE_RULES, not checkClientChat())
+				displayChatMessage(PRONE_RULES, shouldDisplayAsSecret(nodeCT))
 			end
 		end
 	end
@@ -219,7 +219,7 @@ function displayDebilitatingConditionChatMessage(vActor, sCondition)
 	local sText = string.format("'%s' is %s, can't mount/dismount.",
 								ActorManager.getDisplayName(vActor),
 								sCondition)
-	displayChatMessage(sText, not checkClientChat())
+	displayChatMessage(sText, shouldDisplayAsSecret(vActor))
 end
 
 function displayProcessAttackFromMount(rSource, rTarget, rRoll)
@@ -261,14 +261,14 @@ function displayProcessAttackFromMount(rSource, rTarget, rRoll)
 		end
 	end
 
-	displayTableIfNonEmpty(aOutput)
+	displayTableIfNonEmpty(aOutput, false)
 end
 
-function displayTableIfNonEmpty(aTable)
+function displayTableIfNonEmpty(aTable, bSecret)
 	aTable = validateTableOrNew(aTable)
 	if #aTable > 0 then
 		local sDisplay = table.concat(aTable, "\r")
-		displayChatMessage(sDisplay, not checkClientChat())
+		displayChatMessage(sDisplay, bSecret)
 	end
 end
 
@@ -657,14 +657,14 @@ function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated
 	local nodeRiderEffect = getRiderEffectNode(nodeCT)
 	if nodeRiderEffect then
 		local sMsg = string.format("The current actor (%s) is a mount, dismount should occur on the rider's (%s) turn.", sCurrentActorName, getMountOrRiderValueFromEffectNode(nodeRiderEffect))
-		displayChatMessage(sMsg, not checkClientChat())
+		displayChatMessage(sMsg, shouldDisplayAsSecret(nodeCT))
 		return
 	end
 
 	local nodeMountEffect = getMountEffectNode(nodeCT)
 	if not nodeMountEffect then
 		local sMsg = string.format("The current actor (%s) does not have a mount.", sCurrentActorName)
-		displayChatMessage(sMsg, not checkClientChat())
+		displayChatMessage(sMsg, shouldDisplayAsSecret(nodeCT))
 		return
 	end
 
@@ -689,7 +689,7 @@ function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated
 	expireMountOrRiderEffectOnCTNode(nodeMount)
 	if not checkVerbosityOff() then
 		-- TODO: Calculate the movement needed w/ getSpeed() but it only works as a number on pcs, string on npc that would need to be parsed (comma separated walk is default with no prefix).
-		displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", not checkClientChat())
+		displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", shouldDisplayAsSecret(nodeCT))
 	end
 end
 
@@ -717,7 +717,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	if not nodeRider then
 		nodeRider = CombatManager.getActiveCT()
 		if not nodeRider then
-			displayChatMessage("Combat is not active, which is required for MountTracker processing.", not checkClientChat())
+			displayChatMessage("Combat is not active, which is required for MountTracker processing.", shouldDisplayAsSecret(nodeRider))
 			return
 		end
 	end
@@ -726,12 +726,12 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	local nodeMount = getMountOrRiderCombatTrackerNode(sMountName)
 	if nodeRider == nodeMount then
 		local sMsg = string.format("The rider and mount (%s) must be unique names.", ActorManager.getDisplayName(nodeRider))
-		displayChatMessage(sMsg, not checkClientChat())
+		displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 		return
 	end
 
 	if not nodeMount or not sMountName or sMountName == "" then
-		displayChatMessage("The mount name must be specified and match an npc/pc mount in the Combat Tracker.", not checkClientChat())
+		displayChatMessage("The mount name must be specified and match an npc/pc mount in the Combat Tracker.", shouldDisplayAsSecret(nodeRider))
 		return
 	end
 
@@ -744,7 +744,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 		local nodeMountOfEffectRider = getMountOrRiderCombatTrackerNode(sEffectMountName)
 		if hasRider(nodeMountOfEffectRider, sRiderName) then
 			local sMsg = string.format("'%s' already has a mount.", sRiderName)
-			displayChatMessage(sMsg, not checkClientChat())
+			displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 			return
 		end
 	end
@@ -755,7 +755,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 		local nodeRiderOfEffectRiderOnRider = getMountOrRiderCombatTrackerNode(sEffectRiderNameOnRider)
 		if hasMount(nodeRiderOfEffectRiderOnRider, sRiderName) then
 			local sMsg = string.format("'%s' is a mount and can't mount another.", sRiderName)
-			displayChatMessage(sMsg, not checkClientChat())
+			displayChatMessage(sMsg, shouldDisplayAsSecret(nodeMount))
 			return
 		end
 	end
@@ -767,13 +767,13 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 		local nodeRiderOfEffectMount = getMountOrRiderCombatTrackerNode(sEffectRiderName)
 		if hasMount(nodeRiderOfEffectMount, sMountName) then
 			local sMsg = string.format("The mount (%s) already has a rider (%s).", sMountName, sEffectRiderName)
-			displayChatMessage(sMsg, not checkClientChat())
+			displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 			return
 		end
 	end
 
 	if isTrap(nodeRider) or isTrap(nodeMount) then
-		displayChatMessage("Traps cannot mount or be mounted.", not checkClientChat())
+		displayChatMessage("Traps cannot mount or be mounted.", shouldDisplayAsSecret(nodeRider))
 		return
 	end
 
@@ -789,11 +789,11 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	if checkEnforceSizeRule() then
 		if not sSizeRider or sSizeRider == "" or not sSizeMount or sSizeMount == "" then
 			local sMsg = string.format("The rider (%s) and mount (%s) must have a size set.", sRiderName, sMountName)
-			displayChatMessage(sMsg, not checkClientChat())
+			displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 			return
 		elseif not isMountLargerThanRider(sSizeMount, sSizeRider) then
 			local sMsg = string.format("The mount (%s, %s) has to be at least one size larger than the rider (%s, %s).", sMountName, sSizeMount, sRiderName, sSizeRider)
-			displayChatMessage(sMsg, not checkClientChat())
+			displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 			return
 		end
 	end
@@ -835,12 +835,24 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	end
 
 	if not checkVerbosityOff() then
-		displayChatMessage(sCoreMountRules .. sRuleDetail, not checkClientChat())
+		displayChatMessage(sCoreMountRules .. sRuleDetail, shouldDisplayAsSecret(nodeRider))
 	end
 end
 
 function processUncontrolledMountChatCommand(_, sParams)
 	processMountChatCommand(sParams, true)
+end
+
+function isFriend(vActor)
+	return vActor and ActorManager.getFaction(vActor) == "friend"
+end
+
+function isNpc(vActor)
+	return vActor and ActorManager.getRecordType(vActor) == "npc"
+end
+
+function shouldDisplayAsSecret(vActor)
+    return not checkClientChat() or (not isFriend(vActor) and isNpc(vActor))
 end
 
 function requestActivation(nodeCurrentCTActor, bSkipBell)
@@ -862,7 +874,7 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 			local sSpeed = getSpeed(nodeMount)
 			-- Any mounted combat rules or detail needed on the rider's turn.
 			local sMsg = string.format("'%s' is riding a mount (%s). Speed: %s%s", rCurrentActor.sName, sMountName, sSpeed, sMountActions)
-			displayChatMessage(sMsg, not checkClientChat())
+			displayChatMessage(sMsg, shouldDisplayAsSecret(rCurrentActor))
 		end
 
 		return
@@ -874,7 +886,7 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 			local bHasSkipTurn = getEffectNode(nodeCurrentCTActor, "skipturn", true)
 			if not bHasSkipTurn then
 				local sMsg = string.format("'%s' is a mount being ridden by '%s'. Speed: %s%s", rCurrentActor.sName, sRiderName, sSpeed, sMountActions)
-				displayChatMessage(sMsg, not checkClientChat())
+				displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 			end
 		end
 
