@@ -2,7 +2,7 @@
 
 https://github.com/JustinFreitas/MountTracker
 
-MountTracker v1.3.1, by Justin Freitas
+MountTracker v1.4, by Justin Freitas
 
 ReadMe and Usage Notes
 
@@ -70,7 +70,8 @@ Future Enhancements:
 
 Changelist:
 - v1.0 - Initial version.
-- v1.1 - Changed the in-combat firing of the stealth functionality fromn onTurnStart to requestActivation.  Now, it works when you click the left CT bar to activate an actor that way (and still works when using the Next Actor button too).  Migrated over the build tool for consistency in building the extension output.
+- v1.1 - Changed the in-combat firing of the mount functionality fromn onTurnStart to requestActivation.  Now, it works when you click the left CT bar to activate an actor that way (and still works when using the Next Actor button too).  Migrated over the build tool for consistency in building the extension output.
 - v1.2 - Updated the icon using Sir Motte's template.  Don't use crossed eye icon in chat messages.
 - v1.3 - Another icon update, this time 42px to conform to new theme style.
 - v1.3.1 - Don't display MountTracker information to the players if the rider is an NPC and not a friend.  This will be enforced even if Show to Players is enabled in the options.
+- v1.4 - Add an option for Frame Style (defaulting to None) to frame the MountTracker chat output.  The options are None, Chat, Story, Whisper and they utilize the CoreRPG output modes for these selections.

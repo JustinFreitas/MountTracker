@@ -11,6 +11,8 @@ MOUNT_ACTIONS = " It moves as you direct it, and it has only three action option
 MOUNTTRACKER_CLIENT_CHAT = "MOUNTTRACKER_CLIENT_CHAT"
 MOUNTTRACKER_CONTROLLED_MOUNT_SKIP = "MOUNTTRACKER_CONTROLLED_MOUNT_SKIP"
 MOUNTTRACKER_ENFORCE_SIZE = "MOUNTTRACKER_ENFORCE_SIZE"
+NONE = "none"
+MOUNTTRACKER_FRAME_STYLE = "MOUNTTRACKER_FRAME_STYLE"
 MOUNTTRACKER_VERBOSE = "MOUNTTRACKER_VERBOSE"
 OFF = "off"
 ON = "on"
@@ -45,6 +47,8 @@ function onInit()
 	{ labels = option_val_off, values = OFF, baselabel = "option_val_on", baseval = ON, default = ON })
 	OptionsManager.registerOption2(MOUNTTRACKER_VERBOSE, false, option_header, "option_label_MOUNTTRACKER_VERBOSE", option_entry_cycler,
 	{ baselabel = "option_val_max", baseval = MAX, labels = "option_val_standard|" .. option_val_off, values = "standard|" .. OFF, default = MAX })
+    OptionsManager.registerOption2(MOUNTTRACKER_FRAME_STYLE, false, option_header, "option_label_MOUNTTRACKER_FRAME_STYLE", option_entry_cycler,
+    { baselabel = "option_val_none_MOUNTTRACKER", baseval = NONE, labels = "option_val_chat_MOUNTTRACKER|option_val_story_MOUNTTRACKER|option_val_whisper_MOUNTTRACKER", values = "chat|story|whisper", default = NONE })
 
 	USER_ISHOST = User.isHost()
 
@@ -205,7 +209,7 @@ end
 function displayChatMessage(sFormattedText, bSecret)
 	if not sFormattedText then return end
 
-	local msg = {font = "msgfont", icon = "mount_icon", secret = false, text = sFormattedText}  -- secret true shows the cross eye icon, wasting space
+	local msg = {font = "msgfont", icon = "mount_icon", secret = false, text = sFormattedText, mode = getMode()}  -- secret true shows the cross eye icon, wasting space
 
 	-- deliverChatMessage() is a broadcast mechanism, addChatMessage() is local only.
 	if bSecret then
@@ -223,7 +227,7 @@ function displayDebilitatingConditionChatMessage(vActor, sCondition)
 end
 
 function displayProcessAttackFromMount(rSource, rTarget, rRoll)
-	-- if no source or no roll then exit, skipping StealthTracker processing.
+	-- if no source or no roll then exit, skipping MountTracker processing.
 	if not rSource or not rSource.sCTNode or rSource.sCTNode == "" then return end
 
 	local sRollDesc = rRoll.sDesc
@@ -272,7 +276,7 @@ function displayTableIfNonEmpty(aTable, bSecret)
 	end
 end
 
--- Function to expire the last found stealth effect in the CT node's effects table.  An explicit expiration is needed because the built-in expiration only works if the coded effect matches a known roll or action type (i.e. ATK:3 will expire on attack roll).
+-- Function to expire the last found mount effect in the CT node's effects table.  An explicit expiration is needed because the built-in expiration only works if the coded effect matches a known roll or action type (i.e. ATK:3 will expire on attack roll).
 function expireMountOrRiderEffectOnCTNode(nodeCT)
 	if not nodeCT then return end
 
@@ -325,7 +329,7 @@ function getEffectNode(nodeCT, sEffect, bTagOnly)
 		sEffectPattern = "^%W*" .. sEffect:lower() .. "%W*$"
 	end
 
-	-- Walk the effects in order so that the last one added is taken in case they are stacked.  If a duplicate Stealth effect is found, remove subsequent ones.
+	-- Walk the effects in order so that the last one added is taken in case they are stacked.  If a duplicate MountTracker effect is found, remove subsequent ones.
 	for _, nodeEffect in pairs(aSorted) do
 
 		local sEffectLabel = DB.getValue(nodeEffect, LABEL, ""):lower()
@@ -343,6 +347,15 @@ function getEffectNode(nodeCT, sEffect, bTagOnly)
 	end
 
 	return nil
+end
+
+function getMode()
+    local sFrameStyle = OptionsManager.getOption(MOUNTTRACKER_FRAME_STYLE)
+    if sFrameStyle == NONE then
+        sFrameStyle = ""
+    end
+
+    return sFrameStyle
 end
 
 function getMountEffectNode(nodeCT)
