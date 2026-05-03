@@ -961,36 +961,26 @@ end
 function setNodeWithEffect(nodeCT, sEffect, sValue)
 	if not nodeCT or not sEffect then return end
 
-	local bAddSkipTurn = false
-	if sValue then
-		if sEffect:lower() == "rider" then
-			if not sValue:match("Uncontrolled") and checkControlledMountSkip() then
-				bAddSkipTurn = true
-			end
+	local sLabel = sEffect .. ": " .. sValue
+	if sEffect:lower() == "rider" then
+		if not sValue:match("Uncontrolled") and checkControlledMountSkip() then
+			sLabel = sLabel .. "; SKIPTURN"
 		end
+	end
+	sLabel = sLabel .. "; MountTracker"
 
-		sEffect = sEffect .. ": " .. sValue
+	if sValue then
 		deleteAllMountOrRiderEffects(nodeCT)
 	end
 
 	local rEffect = {
-		sName = sEffect,
+		sName = sLabel,
 		nInit = 0,
 		nDuration = 0,
 		nGMOnly = 0
 	}
 
 	EffectManager.addEffect("", "", nodeCT, rEffect, true)
-
-	if bAddSkipTurn then
-		local rSkipEffect = {
-			sName = "MountTracker; SKIPTURN",
-			nInit = 0,
-			nDuration = 0,
-			nGMOnly = 0
-		}
-		EffectManager.addEffect("", "", nodeCT, rSkipEffect, true)
-	end
 end
 
 function validateTableOrNew(aTable)
