@@ -29,10 +29,53 @@ SIZE_TINY = "Tiny"
 UCMOUNT = "ucmount"
 USER_ISHOST = false
 
-ActionAttack_onAttack = nil
-CombatManager_onDrop = nil
-CombatManager_requestActivation = nil
-EffectManager_addEffect = nil
+local ActionAttack_onAttack = nil
+local CombatManager_onDrop = nil
+local CombatManager_requestActivation = nil
+local EffectManager_addEffect = nil
+
+-- Helper to safely check if a string is blank, preferring the modern StringManager method.
+local function isBlankSafe(s)
+    if StringManager.isBlank then
+        return StringManager.isBlank(s)
+    end
+    if type(s) ~= "string" then
+        return false
+    end
+    return (string.gsub(s, "%s+", "") == "")
+end
+
+-- Helper to safely get an actor from a node/string, preferring the modern getActor method.
+local function getActorSafe(v)
+    if ActorManager.getActor then
+        return ActorManager.getActor(v)
+    end
+    return ActorManager.resolveActor(v)
+end
+
+-- Helper to safely get an actor's type and node, preferring the modern getTypeAndNode method.
+local function getTypeAndNodeSafe(v)
+    if ActorManager.getTypeAndNode then
+        return ActorManager.getTypeAndNode(v)
+    end
+    return ActorManager.getActorTypeAndNode(v)
+end
+
+-- Helper to safely check for effects, preferring the modern CoreRPG or 5E-specific EffectManager if available.
+local function hasEffectSafe(rActor, sEffect, rTarget, bTargetedOnly)
+    if EffectManager.hasEffect then
+        return EffectManager.hasEffect(rActor, sEffect, rTarget, bTargetedOnly)
+    end
+    if EffectManager5E and EffectManager5E.hasEffect then
+        return EffectManager5E.hasEffect(rActor, sEffect, rTarget, bTargetedOnly)
+    end
+    return EffectManager.hasEffect(rActor, sEffect)
+end
+
+function escapePattern(text)
+    if isBlankSafe(text) then return "" end
+    return text:gsub("([^%w])", "%%%1")
+end
 
 function onInit()
 	IS_FGC = checkFGC()
@@ -62,6 +105,7 @@ function onInit()
 		Comm.registerSlashHandler(UCMOUNT, processUncontrolledMountChatCommand)
 		Comm.registerSlashHandler(MOUNT, processControlledMountChatCommand)
 		Comm.registerSlashHandler("dismount", processDismountChatCommand)
+        Comm.registerSlashHandler("subinit", processSubinitChatCommand)
 			-- TODO: This will be the new way of doing things once they deprecate Comm.registerSlashHandler() which is coming soon.
 		--ChatManager.registerSlashCommand(MOUNT, processChatCommand)
 
@@ -86,7 +130,9 @@ function onInit()
 end
 
 function addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
-	EffectManager_addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
+    if EffectManager_addEffect then
+	    EffectManager_addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
+    end
 	if rNewEffect.sName == "Prone" then
 		local nodeRiderEffect = getRiderEffectNode(nodeCT)
 		local nodeMountEffect = getMountEffectNode(nodeCT)
@@ -207,7 +253,7 @@ end
 
 -- Puts a message in chat that is broadcast to everyone attached to the host (including the host) if bSecret is true, otherwise local only.
 function displayChatMessage(sFormattedText, bSecret)
-	if not sFormattedText then return end
+	if isBlankSafe(sFormattedText) then return end
 
 	local msg = {font = "msgfont", icon = "mount_icon", secret = false, text = sFormattedText, mode = getMode()}  -- secret true shows the cross eye icon, wasting space
 
@@ -283,23 +329,16 @@ function expireMountOrRiderEffectOnCTNode(nodeCT)
 	local aSortedCTNodes = getOrderedEffectsTableFromCTNode(nodeCT)
 	if not aSortedCTNodes then return end
 
-	local nodeLastEffectWithMountOrRider
-
-	-- Walk the effects in order so that the last one added is taken in case they are stacked.
+	-- Walk the effects and expire any that belong to MountTracker.
 	for _, nodeEffect in pairs(aSortedCTNodes) do
 		if isMountOrRiderEffectNode(nodeEffect) then
-			nodeLastEffectWithMountOrRider = nodeEffect
+			EffectManager.expireEffect(nodeCT, nodeEffect, 0)
 		end
-	end
-
-	-- If an effect node was found walking the list, expire the effect.
-	if nodeLastEffectWithMountOrRider then
-		EffectManager.expireEffect(nodeCT, nodeLastEffectWithMountOrRider, 0)
 	end
 end
 
 function getActorDebilitatingCondition(vActor)
-	local rActor = ActorManager.resolveActor(vActor)
+	local rActor = getActorSafe(vActor)
 	if not rActor then return nil end
 
 	local aConditions = { -- prioritized
@@ -314,7 +353,7 @@ function getActorDebilitatingCondition(vActor)
 	}
 
 	for _,sCondition in ipairs(aConditions) do
-		if EffectManager5E.hasEffect(rActor, sCondition) then return sCondition end
+		if hasEffectSafe(rActor, sCondition) then return sCondition end
 	end
 
 	return nil
@@ -363,17 +402,28 @@ function getMountEffectNode(nodeCT)
 end
 
 function getMountOrRiderCombatTrackerNode(sActorName)
-	if not sActorName then return nil end
+	if isBlankSafe(sActorName) then return nil end
 
-	local nodeFound = nil
+	local sLowerActorName = sActorName:lower()
+
+	-- First pass: Try for an exact match.
 	for _, nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
-		local rActor = ActorManager.resolveActor(nodeCT)
-		local sPattern = "^" .. sActorName:lower()
-		if rActor and string.match(rActor.sName:lower(), sPattern) then
+		local sDisplayName = ActorManager.getDisplayName(nodeCT)
+		if sDisplayName and sDisplayName:lower() == sLowerActorName then
+			return nodeCT -- Exact match found, return immediately.
+		end
+	end
+
+	-- Second pass: Prefix match (for chat commands).
+	local nodeFound = nil
+	local sPattern = "^" .. escapePattern(sLowerActorName)
+	for _, nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
+		local sDisplayName = ActorManager.getDisplayName(nodeCT)
+		if sDisplayName and string.match(sDisplayName:lower(), sPattern) then
 			if not nodeFound then
 				nodeFound = nodeCT
 			else
-				return nil
+				return nil -- Ambiguous match
 			end
 		end
 	end
@@ -432,10 +482,10 @@ function handleAttackFromMount(msgOOB)
 	if msgOOB.type == OOB_MSGTYPE_ATTACKFROMMOUNT then
 		if not msgOOB.sSourceCTNode or not msgOOB.sTargetCTNode then return end
 
-		local rSource = ActorManager.resolveActor(msgOOB.sSourceCTNode)
+		local rSource = getActorSafe(msgOOB.sSourceCTNode)
 		if not rSource then return end
 
-		local rTarget = ActorManager.resolveActor(msgOOB.sTargetCTNode)
+		local rTarget = getActorSafe(msgOOB.sTargetCTNode)
 		local rRoll = {}
 		rRoll.sDesc = msgOOB.sRollDesc
 		rRoll.aMessages = {}
@@ -463,15 +513,18 @@ function handleDismount(msgOOB)
 end
 
 function hasEffectColonValue(nodeEffect, sEffect, sValue)
-	if not nodeEffect or not sEffect or sEffect == "" or not sValue or sValue == "" then return false end
+	if not nodeEffect or isBlankSafe(sEffect) or isBlankSafe(sValue) then return false end
 
 	local sEffectLabel = DB.getValue(nodeEffect, LABEL, "")
 	-- Let's break that effect up into it's components (i.e. tokenize on ;)
 	local aEffectComponents = EffectManager.parseEffect(sEffectLabel)
 
+	local sEscapedEffect = escapePattern(sEffect)
+	local sEscapedValue = escapePattern(sValue)
+
 	-- Take the last Mount value found, in case it was manually entered and accidentally duplicated (iterate through all of the components).
 	for _, component in ipairs(aEffectComponents) do
-		if string.match(component, "^%W*" .. sEffect .. ":%W*" .. sValue .. "%W*$") then
+		if string.match(component, "^%W*" .. sEscapedEffect .. ":%W*" .. sEscapedValue .. "%W*$") then
 			return true
 		end
 	end
@@ -546,18 +599,23 @@ function isMountOrRiderEffectNode(nodeEffect)
 	if not nodeEffect then return false end
 
 	local sEffectLabel = DB.getValue(nodeEffect, LABEL, ""):lower()
-
-	-- Let's break that effect up into it's components (i.e. tokenize on ;)
 	local aEffectComponents = EffectManager.parseEffect(sEffectLabel)
 
-	-- Take the last Mount value found, in case it was manually entered and accidentally duplicated (iterate through all of the components).
-	for _,component in ipairs(aEffectComponents) do
-		if string.match(component, "^%s*mount:[^;]*$") or string.match(component, "^%s*rider:[^;]*$") then
+	local bHasMountTrackerTag = false
+	local bHasSkipTurnTag = false
+
+	for _, component in ipairs(aEffectComponents) do
+		local sTrimmed = component:match("^%s*(.-)%s*$")
+		if sTrimmed == "mounttracker" then
+			bHasMountTrackerTag = true
+		elseif sTrimmed == "skipturn" then
+			bHasSkipTurnTag = true
+		elseif string.match(sTrimmed, "^mount:[^;]*$") or string.match(sTrimmed, "^rider:[^;]*$") then
 			return true
 		end
 	end
 
-	return false
+	return bHasMountTrackerTag and bHasSkipTurnTag
 end
 
 function isTrap(nodeCT)
@@ -633,12 +691,16 @@ function onDrop(nodetype, nodename, draginfo)
 		end
 	end
 
-	CombatManager_onDrop(nodetype, nodename, draginfo)
+    if CombatManager_onDrop then
+	    CombatManager_onDrop(nodetype, nodename, draginfo)
+    end
 end
 
 -- Attack roll handler
 function onRollAttack(rSource, rTarget, rRoll)
-	ActionAttack_onAttack(rSource, rTarget, rRoll)
+    if ActionAttack_onAttack then
+	    ActionAttack_onAttack(rSource, rTarget, rRoll)
+    end
 	displayProcessAttackFromMount(rSource, rTarget, rRoll)
 end
 
@@ -682,7 +744,7 @@ function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated
 	end
 
 	local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
-	if not sMountName then return end
+	if isBlankSafe(sMountName) then return end
 
 	local nodeMount = getMountOrRiderCombatTrackerNode(sMountName)
 	if not nodeMount then
@@ -709,7 +771,7 @@ end
 -- Chat commands that are for host only
 function processHostOnlySubcommands(sSubcommand)
 	-- Default/empty subcommand - What does the current CT actor not perceive?
-	if sSubcommand == "" then
+	if isBlankSafe(sSubcommand) then
 		-- This is the default subcommand for the host (/mt with no subcommand). It will give a chat display of .
 		return
 	end
@@ -743,7 +805,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 		return
 	end
 
-	if not nodeMount or not sMountName or sMountName == "" then
+	if not nodeMount or isBlankSafe(sMountName) then
 		displayChatMessage("The mount name must be specified and match an npc/pc mount in the Combat Tracker.", shouldDisplayAsSecret(nodeRider))
 		return
 	end
@@ -800,7 +862,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	local sSizeRider = getSize(nodeRider)
 	local sSizeMount = getSize(nodeMount)
 	if checkEnforceSizeRule() then
-		if not sSizeRider or sSizeRider == "" or not sSizeMount or sSizeMount == "" then
+		if isBlankSafe(sSizeRider) or isBlankSafe(sSizeMount) then
 			local sMsg = string.format("The rider (%s) and mount (%s) must have a size set.", sRiderName, sMountName)
 			displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 			return
@@ -852,6 +914,22 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	end
 end
 
+function processSubinitChatCommand(_, _)
+	-- Walk the CT resetting all names.
+	for _,nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
+        local sCharacterName = ActorManager.getDisplayName(nodeCT)
+        local sRegex = "^" .. sCharacterName .. "'s?.*$"
+        local nNodeCTInit = DB.getValue(nodeCT, INIT_RESULT, 0)
+        for _,subNodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
+            if nodeCT ~= subNodeCT and string.match(ActorManager.getDisplayName(subNodeCT), sRegex) ~= nil then
+                DB.setValue(subNodeCT, INIT_RESULT, "number", nNodeCTInit)
+            end
+        end
+	end
+
+    displayChatMessage("Sub-initiatives processed.")
+end
+
 function processUncontrolledMountChatCommand(_, sParams)
 	processMountChatCommand(sParams, true)
 end
@@ -869,12 +947,15 @@ function shouldDisplayAsSecret(vActor)
 end
 
 function requestActivation(nodeCurrentCTActor, bSkipBell)
-    CombatManager_requestActivation(nodeCurrentCTActor, bSkipBell)
+    if CombatManager_requestActivation then
+        CombatManager_requestActivation(nodeCurrentCTActor, bSkipBell)
+    end
 
 	clearAllMountTrackerDataFromCT(true)
 	if checkVerbosityOff() then return end
 
-	local rCurrentActor = ActorManager.resolveActor(nodeCurrentCTActor)
+	local rCurrentActor = getActorSafe(nodeCurrentCTActor)
+	local sCurrentActorDisplayName = ActorManager.getDisplayName(nodeCurrentCTActor)
 	local nodeMountEffect = getMountEffectNode(nodeCurrentCTActor)
 	local nodeRiderEffect = getRiderEffectNode(nodeCurrentCTActor)
 	local sMountActions = ""
@@ -883,10 +964,10 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 	if nodeMountEffect then
 		local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
 		local nodeMount = getMountOrRiderCombatTrackerNode(sMountName)
-		if hasRider(nodeMount, rCurrentActor.sName) then
+		if hasRider(nodeMount, sCurrentActorDisplayName) then
 			local sSpeed = getSpeed(nodeMount)
 			-- Any mounted combat rules or detail needed on the rider's turn.
-			local sMsg = string.format("'%s' is riding a mount (%s). Speed: %s%s", rCurrentActor.sName, sMountName, sSpeed, sMountActions)
+			local sMsg = string.format("'%s' is riding a mount (%s). Speed: %s%s", sCurrentActorDisplayName, sMountName, sSpeed, sMountActions)
 			displayChatMessage(sMsg, shouldDisplayAsSecret(rCurrentActor))
 		end
 
@@ -894,11 +975,11 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 	elseif nodeRiderEffect then
 		local sRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
 		local nodeRider = getMountOrRiderCombatTrackerNode(sRiderName)
-		if hasMount(nodeRider, rCurrentActor.sName) then
+		if hasMount(nodeRider, sCurrentActorDisplayName) then
 			local sSpeed = getSpeed(nodeCurrentCTActor)
 			local bHasSkipTurn = getEffectNode(nodeCurrentCTActor, "skipturn", true)
 			if not bHasSkipTurn then
-				local sMsg = string.format("'%s' is a mount being ridden by '%s'. Speed: %s%s", rCurrentActor.sName, sRiderName, sSpeed, sMountActions)
+				local sMsg = string.format("'%s' is a mount being ridden by '%s'. Speed: %s%s", sCurrentActorDisplayName, sRiderName, sSpeed, sMountActions)
 				displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 			end
 		end
@@ -908,21 +989,22 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 end
 
 function setNodeWithEffect(nodeCT, sEffect, sValue)
-	if not nodeCT or not sEffect then return end
+	if not nodeCT or isBlankSafe(sEffect) then return end
+
+	local sLabel = sEffect .. ": " .. sValue
+	if sEffect:lower() == "rider" then
+		if not sValue:match("Uncontrolled") and checkControlledMountSkip() then
+			sLabel = sLabel .. "; SKIPTURN"
+		end
+	end
+	sLabel = sLabel .. "; MountTracker"
 
 	if sValue then
-		if sEffect:lower() == "rider" then
-			if not sValue:match("Uncontrolled") and checkControlledMountSkip() then
-				sValue = sValue .. "; SKIPTURN"
-			end
-		end
-
-		sEffect = sEffect .. ": " .. sValue
 		deleteAllMountOrRiderEffects(nodeCT)
 	end
 
 	local rEffect = {
-		sName = sEffect,
+		sName = sLabel,
 		nInit = 0,
 		nDuration = 0,
 		nGMOnly = 0
