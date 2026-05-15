@@ -161,12 +161,25 @@ function checkProne(nodeCT, rNewEffect)
 			if nodeRiderEffect then
 				local sRider = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
 				local nodeRider = getMountOrRiderCombatTrackerNode(sRider)
-				local nodeMountEffectFromEffectRider = getMountEffectNode(nodeRider)
-				if nodeMountEffectFromEffectRider then
-					nodeMountEffectFromEffectRider.delete()
+				if nodeRider then
+					local nodeMountEffectOfRider = getMountEffectNode(nodeRider)
+					if nodeMountEffectOfRider then
+						EffectManager.expireEffect(nodeRider, nodeMountEffectOfRider, 0)
+					end
 				end
 
-				nodeRiderEffect.delete()
+				EffectManager.expireEffect(nodeCT, nodeRiderEffect, 0)
+			elseif nodeMountEffect then
+				local sMount = getMountOrRiderValueFromEffectNode(nodeMountEffect)
+				local nodeMount = getMountOrRiderCombatTrackerNode(sMount)
+				if nodeMount then
+					local nodeRiderEffectOfMount = getRiderEffectNode(nodeMount)
+					if nodeRiderEffectOfMount then
+						EffectManager.expireEffect(nodeMount, nodeRiderEffectOfMount, 0)
+					end
+				end
+
+				EffectManager.expireEffect(nodeCT, nodeMountEffect, 0)
 			end
 
 			if not checkVerbosityOff() then
