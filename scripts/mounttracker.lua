@@ -33,6 +33,7 @@ local ActionAttack_onAttack = nil
 local CombatManager_onDrop = nil
 local CombatManager_requestActivation = nil
 local EffectManager_addEffect = nil
+local EffectManager_addEffectByTable = nil
 
 -- Helper to safely check if a string is blank, preferring the modern StringManager method.
 local function isBlankSafe(s)
@@ -111,6 +112,8 @@ function onInit()
 
 		EffectManager_addEffect = EffectManager.addEffect
 		EffectManager.addEffect = addEffect
+		EffectManager_addEffectByTable = EffectManager.addEffectByTable
+		EffectManager.addEffectByTable = addEffectByTable
 
 		if CombatDropManager then
 			CombatManager_onDrop = CombatDropManager.onLegacyDropEvent
@@ -133,7 +136,25 @@ function addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
     if EffectManager_addEffect then
 	    EffectManager_addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
     end
-	if rNewEffect.sName == "Prone" then
+	checkProne(nodeCT, rNewEffect)
+end
+
+function addEffectByTable(vActor, rEffect)
+    local rNewEffect;
+    if EffectManager_addEffectByTable then
+	    rNewEffect = EffectManager_addEffectByTable(vActor, rEffect)
+    end
+    
+    local nodeCT = ActorManager.getCTNode(vActor);
+    if nodeCT then
+        checkProne(nodeCT, rEffect)
+    end
+    
+    return rNewEffect;
+end
+
+function checkProne(nodeCT, rNewEffect)
+	if rNewEffect and rNewEffect.sName == "Prone" then
 		local nodeRiderEffect = getRiderEffectNode(nodeCT)
 		local nodeMountEffect = getMountEffectNode(nodeCT)
 		if (nodeRiderEffect or nodeMountEffect) then
