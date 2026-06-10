@@ -41,5 +41,7 @@ function onMenuSelection(selection, subselection)
 end
 
 function notifyMount(nodeCT, bUncontrolledMount)
-    MountTracker.notifyMount(ActorManager.getDisplayName(nodeCT), bUncontrolledMount)
+    -- Pass the node path too so the host can resolve the exact clicked mount, disambiguating
+    -- duplicate-named actors (e.g. two "Warhorse" entries) rather than matching by name.
+    MountTracker.notifyMount(ActorManager.getDisplayName(nodeCT), bUncontrolledMount, nodeCT.getPath())
 end

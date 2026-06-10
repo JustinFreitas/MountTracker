@@ -41,7 +41,9 @@ function dismount(nodeCT)
 end
 
 function mount(nodeCT, bUncontrolledMount)
-    MountTracker.processMountChatCommand(ActorManager.getDisplayName(nodeCT), bUncontrolledMount)
+    -- Pass the clicked node explicitly so duplicate-named mounts (e.g. two "Warhorse"
+    -- actors) resolve to the exact one the user selected, not the first name match.
+    MountTracker.processMountChatCommand(ActorManager.getDisplayName(nodeCT), bUncontrolledMount, nil, nodeCT)
 end
 
 function delete()

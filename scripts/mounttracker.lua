@@ -54,14 +54,6 @@ local function getActorSafe(v)
     return ActorManager.resolveActor(v)
 end
 
--- Helper to safely get an actor's type and node, preferring the modern getTypeAndNode method.
-local function getTypeAndNodeSafe(v)
-    if ActorManager.getTypeAndNode then
-        return ActorManager.getTypeAndNode(v)
-    end
-    return ActorManager.getActorTypeAndNode(v)
-end
-
 -- Helper to safely check for effects, preferring the modern CoreRPG or 5E-specific EffectManager if available.
 local function hasEffectSafe(rActor, sEffect, rTarget, bTargetedOnly)
     if EffectManager.hasEffect then
@@ -132,29 +124,68 @@ function onInit()
 	ActionsManager.registerResultHandler("attack", onRollAttack)
 end
 
+-- Tracks the effect table currently being processed so that checkProne fires only once
+-- per add, even though FGU funnels addEffect -> addEffectByTable (both of which we hook).
+-- On FGC, where addEffect does not funnel through addEffectByTable, the addEffect hook
+-- still gets to run the check itself.
+local rProneCheckInProgress = nil
+
 function addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
-    if EffectManager_addEffect then
-	    EffectManager_addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
-    end
-	checkProne(nodeCT, rNewEffect)
+	local nodeEffect
+	-- Guard against the double-fire: if the underlying addEffect funnels through our
+	-- addEffectByTable hook (FGU/modern CoreRPG), let that hook run checkProne. Otherwise
+	-- (FGC) the inner call won't reach addEffectByTable and we run the check here.
+	local bAlreadyInProgress = (rProneCheckInProgress == rNewEffect)
+	rProneCheckInProgress = rNewEffect
+	if EffectManager_addEffect then
+		nodeEffect = EffectManager_addEffect(sUser, sIdentity, nodeCT, rNewEffect, bShowMsg)
+	end
+
+	if not bAlreadyInProgress and rProneCheckInProgress == rNewEffect then
+		-- The addEffectByTable hook did not consume the check (FGC path), so do it here.
+		checkProne(nodeCT, rNewEffect)
+	end
+	rProneCheckInProgress = nil
+
+	return nodeEffect
 end
 
 function addEffectByTable(vActor, rEffect)
-    local rNewEffect;
-    if EffectManager_addEffectByTable then
-	    rNewEffect = EffectManager_addEffectByTable(vActor, rEffect)
-    end
-    
-    local nodeCT = ActorManager.getCTNode(vActor);
-    if nodeCT then
-        checkProne(nodeCT, rEffect)
-    end
-    
-    return rNewEffect;
+	local rNewEffect;
+	if EffectManager_addEffectByTable then
+		rNewEffect = EffectManager_addEffectByTable(vActor, rEffect)
+	end
+
+	local nodeCT = ActorManager.getCTNode(vActor);
+	if nodeCT then
+		checkProne(nodeCT, rEffect)
+	end
+	-- Signal to a wrapping addEffect call (if any) that the prone check has been handled.
+	if rProneCheckInProgress == rEffect then
+		rProneCheckInProgress = nil
+	end
+
+	return rNewEffect;
+end
+
+-- Returns true if the effect's name contains a "Prone" condition tag, parsing it into
+-- components so that compound effects (e.g. "Prone; Incapacitated; ...") and conditions
+-- added via EffectManager.addCondition are recognized, not just a bare "Prone" effect.
+function isProneEffect(rNewEffect)
+	if not rNewEffect or isBlankSafe(rNewEffect.sName) then return false end
+
+	local aEffectComponents = EffectManager.parseEffect(rNewEffect.sName)
+	for _, component in ipairs(aEffectComponents) do
+		if component:match("^%s*(.-)%s*$"):lower() == "prone" then
+			return true
+		end
+	end
+
+	return false
 end
 
 function checkProne(nodeCT, rNewEffect)
-	if rNewEffect and rNewEffect.sName == "Prone" then
+	if isProneEffect(rNewEffect) then
 		local nodeRiderEffect = getRiderEffectNode(nodeCT)
 		local nodeMountEffect = getMountEffectNode(nodeCT)
 		if (nodeRiderEffect or nodeMountEffect) then
@@ -323,7 +354,7 @@ function displayProcessAttackFromMount(rSource, rTarget, rRoll)
 	local nodeSource = ActorManager.getCTNode(rSource)
 	if nodeSource then
 		if getRiderEffectNode(nodeSource) then
-			insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Attack was made by the mount.  Is is uncontrolled?  A controlled mount can only Dash, Disengage, and Dodge.")
+			insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Attack was made by the mount.  Is it uncontrolled?  A controlled mount can only Dash, Disengage, and Dodge.")
 		elseif getMountEffectNode(nodeSource) then
 			insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Attack was made by a mounted combatant.")
 		end
@@ -536,8 +567,15 @@ function handleMount(msgOOB)
 
 	if not msgOOB.sTargetCTNode then return end
 
+	-- Resolve the exact mount node from its path when provided (disambiguates duplicate names);
+	-- fall back to name-based resolution inside processMountChatCommand for older clients.
+	local nodeMount = nil
+	if not isBlankSafe(msgOOB.sTargetCTNodePath) then
+		nodeMount = CombatManager.getCTFromNode(msgOOB.sTargetCTNodePath)
+	end
+
 	local stringToBoolean = { ["true"] = true, ["false"] = false }
-	processMountChatCommand(msgOOB.sTargetCTNode, not stringToBoolean[msgOOB.sControlledBoolean])
+	processMountChatCommand(msgOOB.sTargetCTNode, not stringToBoolean[msgOOB.sControlledBoolean], nil, nodeMount)
 end
 
 function handleDismount(msgOOB)
@@ -615,7 +653,7 @@ function isMountLargerThanRider(sMount, sRider)
 	end
 
 	if sRider == SIZE_TINY then
-		return not sMount == SIZE_TINY
+		return not (sMount == SIZE_TINY)
 	end
 
 	if sRider == SIZE_HUGE then
@@ -682,14 +720,15 @@ function notifyDismount()
 	Comm.deliverOOBMessage(msgOOB, "")
 end
 
-function notifyMount(sTarget, bUncontrolledMount)
+function notifyMount(sTarget, bUncontrolledMount, sTargetCTNodePath)
 	-- Setup the OOB message object, including the required type.
 	local msgOOB = {}
 	msgOOB.type = OOB_MSGTYPE_MOUNT
 
 	msgOOB.sUsername = User.getUsername()
 	msgOOB.sControlledBoolean = tostring(not bUncontrolledMount)
-	msgOOB.sTargetCTNode = sTarget
+	msgOOB.sTargetCTNode = sTarget -- display name (used for messaging/fallback)
+	msgOOB.sTargetCTNodePath = sTargetCTNodePath or "" -- exact node path for disambiguation
 
 	Comm.deliverOOBMessage(msgOOB, "")
 end
@@ -821,7 +860,7 @@ function processHostOnlySubcommands(sSubcommand)
 	return sSubcommand
 end
 
-function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplicit)
+function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplicit, nodeMountExplicit)
 	local nodeRider = nodeRiderExplicit
 	if not nodeRider then
 		nodeRider = CombatManager.getActiveCT()
@@ -832,7 +871,9 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	end
 
 	local sRiderName = ActorManager.getDisplayName(nodeRider)
-	local nodeMount = getMountOrRiderCombatTrackerNode(sMountName)
+	-- Prefer the exact node the caller clicked/dropped on (disambiguates duplicate names in the
+	-- CT, e.g. two "Warhorse" actors). Fall back to resolving the mount by name for chat commands.
+	local nodeMount = nodeMountExplicit or getMountOrRiderCombatTrackerNode(sMountName)
 	if nodeRider == nodeMount then
 		local sMsg = string.format("The rider and mount (%s) must be unique names.", ActorManager.getDisplayName(nodeRider))
 		displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))

@@ -2,7 +2,7 @@
 
 https://github.com/JustinFreitas/MountTracker
 
-MountTracker v1.4, by Justin Freitas
+MountTracker v1.8, by Justin Freitas
 
 ReadMe and Usage Notes
 
@@ -75,3 +75,7 @@ Changelist:
 - v1.3 - Another icon update, this time 42px to conform to new theme style.
 - v1.3.1 - Don't display MountTracker information to the players if the rider is an NPC and not a friend.  This will be enforced even if Show to Players is enabled in the options.
 - v1.4 - Add an option for Frame Style (defaulting to None) to frame the MountTracker chat output.  The options are None, Chat, Story, Whisper and they utilize the CoreRPG output modes for these selections.
+- v1.5 - Decouple SKIPTURN from relationship effects and improve actor name matching robustness (exact match preferred, then prefix match with ambiguity rejection).  Reposition the MountTracker metadata format for better CT visibility.
+- v1.6 - Upgrade to modern CoreRPG native functions (StringManager.isBlank, EffectManager.hasEffect) behind safe wrappers, and add nil guards for ruleset function hooks.
+- v1.7 - Fix ruleset standardization incompatibility by also hooking EffectManager.addEffectByTable for Prone detection.  Implement bidirectional automated dismounting and improve chat feedback via effect expiration.
+- v1.8 - Robust Prone detection: parse effect components so compound conditions (e.g. "Prone; Incapacitated; ...") and conditions added via EffectManager.addCondition trigger auto-dismount, not just a bare "Prone" effect.  Consolidate the prone check to fire once across the addEffect/addEffectByTable hooks (verified safe on both FGU, which funnels addEffect->addEffectByTable, and FGC, which has no addEffectByTable and adds effects inline).  Return the effect node from the addEffect hook to match CoreRPG.  Fix a Tiny-rider size-comparison operator precedence bug that prevented Tiny riders from mounting.  Fix radial-menu mount targeting the wrong actor when two CT actors share a name (e.g. two "Warhorse" entries): the clicked node is now passed through explicitly (and its node path is carried over OOB for player/client mounts) instead of resolving the mount by name.  Remove dead code and minor chat text/typo cleanups.
