@@ -181,11 +181,7 @@ async function runTests() {
         }
     }
 
-    // --- TEST 1: checkFGC ---
-    await lua.doString("Interface.setVersion(3, 3, 10)");
-    await runAssert("checkFGC() FGC", true, "return checkFGC()");
-    await lua.doString("Interface.setVersion(4, 1, 0)");
-    await runAssert("checkFGC() FGU", false, "return checkFGC()");
+
 
     // --- TEST 2: escapePattern ---
     await runAssert("escapePattern normal", "hello", "return escapePattern('hello')");

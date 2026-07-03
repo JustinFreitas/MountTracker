@@ -71,7 +71,6 @@ function escapePattern(text)
 end
 
 function onInit()
-	IS_FGC = checkFGC()
 	local option_header = "option_header_mounttracker"
 	local option_val_off = "option_val_off"
 	local option_entry_cycler = "option_entry_cycler"
@@ -233,12 +232,7 @@ function checkEnforceSizeRule()
 	return OptionsManager.isOption(MOUNTTRACKER_ENFORCE_SIZE, ON)
 end
 
-function checkFGC()
-	local nMajor, nMinor, nPatch = Interface.getVersion()
-	if nMajor <= 2 then return true end
-	if nMajor == 3 and nMinor <= 2 then return true end
-	return nMajor == 3 and nMinor == 3 and nPatch <= 15
-end
+
 
 function checkVerbosityMax()
 	return OptionsManager.isOption(MOUNTTRACKER_VERBOSE, MAX)
@@ -734,21 +728,7 @@ function notifyMount(sTarget, bUncontrolledMount, sTargetCTNodePath)
 end
 
 function onDrop(nodetype, nodename, draginfo)
-	-- I don't know why this weird hack is needed, but it prevents the drop from firing twice.  It is FGC only.
-	if IS_FGC then
-		if LAST_DRAG_INFO == draginfo and
-		   LAST_NODE_NAME == nodename and
-		   LAST_NODE_TYPE == nodetype then
-			LAST_DRAG_INFO = nil
-			LAST_NODE_NAME = nil
-			LAST_NODE_TYPE = nil
-			return
-		end
 
-		LAST_DRAG_INFO = draginfo
-		LAST_NODE_NAME = nodename
-		LAST_NODE_TYPE = nodetype
-	end
 
 	local nodeSourceCT = draginfo.getCustomData()
 	local nodeTargetCT
