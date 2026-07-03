@@ -7,3 +7,4 @@ scripts/luacheck.exe
 readme.txt
 build/out/MountTracker.ext
 build/out/MountTracker.zip
+node_modules/
