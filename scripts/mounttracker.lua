@@ -460,17 +460,42 @@ function getMountEffectNode(nodeCT)
 	return getEffectNode(nodeCT, MOUNT)
 end
 
-function getMountOrRiderCombatTrackerNode(sActorName)
+-- Resolves a CT node by display name. If bWarnIfAmbiguous is true and more than one CT node
+-- matches, a host-only chat warning is shown and nil is returned instead of guessing -- silently
+-- picking whichever node happens to be first in DB.getChildren's iteration order is exactly the
+-- fragility (consistent-but-arbitrary, and liable to flip if the CT roster changes) that this
+-- guards against. Callers that resolve a partner behind the scenes (e.g. once-per-turn cleanup)
+-- should omit bWarnIfAmbiguous so an existing ambiguous name doesn't spam a warning every turn.
+function getMountOrRiderCombatTrackerNode(sActorName, bWarnIfAmbiguous)
 	if isBlankSafe(sActorName) then return nil end
 
 	local sLowerActorName = sActorName:lower()
 
-	-- First pass: Try for an exact match.
+	-- First pass: exact match. Keep scanning instead of stopping at the first hit so that two CT
+	-- entries sharing an exact display name are detected as ambiguous rather than silently
+	-- resolving to whichever one happens to come first.
+	local nodeExactMatch = nil
+	local bExactAmbiguous = false
 	for _, nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
 		local sDisplayName = ActorManager.getDisplayName(nodeCT)
 		if sDisplayName and sDisplayName:lower() == sLowerActorName then
-			return nodeCT -- Exact match found, return immediately.
+			if nodeExactMatch then
+				bExactAmbiguous = true
+			else
+				nodeExactMatch = nodeCT
+			end
 		end
+	end
+
+	if bExactAmbiguous then
+		if bWarnIfAmbiguous then
+			displayChatMessage(string.format("Multiple Combat Tracker entries are named '%s'. MountTracker can't tell them apart -- rename one to continue.", sActorName), true)
+		end
+		return nil
+	end
+
+	if nodeExactMatch then
+		return nodeExactMatch
 	end
 
 	-- Second pass: Prefix match (for chat commands).
@@ -482,6 +507,9 @@ function getMountOrRiderCombatTrackerNode(sActorName)
 			if not nodeFound then
 				nodeFound = nodeCT
 			else
+				if bWarnIfAmbiguous then
+					displayChatMessage(string.format("Multiple Combat Tracker entries match '%s'. MountTracker can't tell them apart -- use a more specific name.", sActorName), true)
+				end
 				return nil -- Ambiguous match
 			end
 		end
@@ -772,11 +800,21 @@ function processControlledMountChatCommand(_, sMountName)
 	processMountChatCommand(sMountName, false)
 end
 
--- Handler for the 'dismount' slash commands in chat.
-function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated, dismount that user no matter the CT position.
-	local nodeCT = getMountOrRiderCombatTrackerNode(sRider)
+-- Handler for the 'dismount' slash commands in chat. nodeCTExplicit, when provided (e.g. by the
+-- CT radial menu, which already knows exactly which entry was clicked), bypasses name resolution
+-- entirely so a duplicate display name elsewhere in the CT can't cause the wrong actor to be
+-- dismounted.
+function processDismountChatCommand(_, sRider, nodeCTExplicit)
+	local nodeCT = nodeCTExplicit
 	if not nodeCT then
-		nodeCT = CombatManager.getActiveCT()
+		if isBlankSafe(sRider) then
+			-- No target specified: default to the current actor.
+			nodeCT = CombatManager.getActiveCT()
+		else
+			-- A specific target was named; if it can't be resolved to exactly one CT entry
+			-- (not found, or ambiguous), don't guess by falling back to the active actor.
+			nodeCT = getMountOrRiderCombatTrackerNode(sRider, true)
+		end
 	end
 
 	if not nodeCT then return end
@@ -858,7 +896,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	local sRiderName = ActorManager.getDisplayName(nodeRider)
 	-- Prefer the exact node the caller clicked/dropped on (disambiguates duplicate names in the
 	-- CT, e.g. two "Warhorse" actors). Fall back to resolving the mount by name for chat commands.
-	local nodeMount = nodeMountExplicit or getMountOrRiderCombatTrackerNode(sMountName)
+	local nodeMount = nodeMountExplicit or getMountOrRiderCombatTrackerNode(sMountName, true)
 	if nodeRider == nodeMount then
 		local sMsg = string.format("The rider and mount (%s) must be unique names.", ActorManager.getDisplayName(nodeRider))
 		displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))

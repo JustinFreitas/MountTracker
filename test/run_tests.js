@@ -381,6 +381,70 @@ async function runTests() {
         end)()
     `);
 
+    // --- TEST 10: Exact-name duplicates are detected as ambiguous and warn ---
+    await runAssert("exact-name duplicates are detected as ambiguous and warn", true, `
+        return (function()
+            DB.addCTNode("dupA", "Twin")
+            DB.addCTNode("dupB", "Twin")
+
+            Comm.clearChatMessages()
+            local nodeResolved = getMountOrRiderCombatTrackerNode("Twin", true)
+            local sawWarning = false
+            for _, m in ipairs(Comm.getChatMessages()) do
+                if m:match("[Mm]ultiple") then sawWarning = true end
+            end
+
+            return nodeResolved == nil and sawWarning
+        end)()
+    `);
+
+    // --- TEST 11: Mounting by typed name refuses when the mount name is ambiguous ---
+    await runAssert("mounting by typed name refuses when ambiguous", true, `
+        return (function()
+            local nodeRiderX = DB.addCTNode("riderX", "RiderX")
+            local nodeMountA = DB.addCTNode("mountA", "Steed")
+            local nodeMountB = DB.addCTNode("mountB", "Steed")
+
+            processMountChatCommand("Steed", false, nodeRiderX, nil)
+
+            return getMountEffectNode(nodeRiderX) == nil and getRiderEffectNode(nodeMountA) == nil and getRiderEffectNode(nodeMountB) == nil
+        end)()
+    `);
+
+    // --- TEST 12: Dismount by ambiguous typed name does not fall back to the active actor ---
+    // Guards against the exact fragility reported: an ambiguous typed name must not silently
+    // act on whichever actor happens to be active instead.
+    await runAssert("dismount by ambiguous typed name leaves an unrelated active actor untouched", true, `
+        return (function()
+            local nodeInnocentRider = DB.addCTNode("innocent", "InnocentBystander")
+            local nodeInnocentMount = DB.addCTNode("innocentMount", "InnocentMount")
+            processMountChatCommand("InnocentMount", false, nodeInnocentRider, nodeInnocentMount)
+
+            DB.addCTNode("dupA2", "Rival")
+            DB.addCTNode("dupB2", "Rival")
+
+            CombatManager.setActiveCTForTest(nodeInnocentRider)
+            processDismountChatCommand(nil, "Rival")
+
+            return getMountEffectNode(nodeInnocentRider) ~= nil and getRiderEffectNode(nodeInnocentMount) ~= nil
+        end)()
+    `);
+
+    // --- TEST 13: Dismount via an explicit node (radial menu) bypasses name ambiguity ---
+    await runAssert("dismount via explicit node bypasses name ambiguity", true, `
+        return (function()
+            local nodeRiderC = DB.addCTNode("riderC", "Twin2")
+            local nodeMountC = DB.addCTNode("mountC", "SteedC")
+            processMountChatCommand("SteedC", false, nodeRiderC, nodeMountC)
+
+            DB.addCTNode("unrelatedTwin", "Twin2")
+
+            processDismountChatCommand(nil, "Twin2", nodeRiderC)
+
+            return getMountEffectNode(nodeRiderC) == nil and getRiderEffectNode(nodeMountC) == nil
+        end)()
+    `);
+
     // 4. Print Summary
     console.log(`\nTest Summary: ${testsPassed} passed, ${testsFailed} failed.`);
 

@@ -37,7 +37,9 @@ function onMenuSelection(selection, subselection)
 end
 
 function dismount(nodeCT)
-    MountTracker.processDismountChatCommand(nil, ActorManager.getDisplayName(nodeCT))
+    -- Pass the clicked node explicitly, same as mount() below, so a duplicate-named CT entry
+    -- elsewhere can't cause the wrong actor to be dismounted.
+    MountTracker.processDismountChatCommand(nil, ActorManager.getDisplayName(nodeCT), nodeCT)
 end
 
 function mount(nodeCT, bUncontrolledMount)
