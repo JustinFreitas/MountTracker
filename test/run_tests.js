@@ -10,7 +10,7 @@ async function runTests() {
 
     // 1. Mock FGU environment globals
     console.log("Mocking FGU environment globals...");
-    
+
     await lua.doString(`
         Interface = {}
         OptionsManager = {}
@@ -23,7 +23,8 @@ async function runTests() {
         User = {}
         OOBManager = {}
         ActionAttack = {}
-        
+        ActionsManager = {}
+
         -- Mock Interface
         local major, minor, patch = 4, 1, 0
         function Interface.getVersion() return major, minor, patch end
@@ -52,6 +53,9 @@ async function runTests() {
         end
         function OptionsManager.setOption(key, val)
             options[key] = val
+        end
+        function OptionsManager.getOption(key)
+            return options[key]
         end
 
         -- Default options
@@ -90,26 +94,57 @@ async function runTests() {
         -- Mock CombatManager
         CombatManager.CT_LIST = "combattracker"
         function CombatManager.requestActivation() end
+        local activeCTNode = nil
+        function CombatManager.getActiveCT() return activeCTNode end
+        function CombatManager.setActiveCTForTest(node) activeCTNode = node end
 
         -- Mock Database structure
         dbData = {}
+        local dbChildren = {}
+
+        local function nodePathOf(node)
+            if type(node) == "table" and node.path then
+                return node.path
+            elseif type(node) == "string" then
+                return node
+            end
+            return ""
+        end
+
+        -- Builds a node object matching the subset of the real FGU DB node API this
+        -- extension relies on: .path, .getName(), .getPath(), .delete().
+        local function makeNode(parentPath, key)
+            local fullPath = parentPath .. "." .. key
+            return {
+                path = fullPath,
+                getName = function() return key end,
+                getPath = function() return fullPath end,
+                delete = function()
+                    if dbChildren[parentPath] then
+                        dbChildren[parentPath][key] = nil
+                    end
+                end
+            }
+        end
+
         function DB.setNodeValue(path, val)
             dbData[path] = val
         end
-        
+
         function DB.getValue(node, field, default)
-            local nodePath = ""
-            if type(node) == "table" and node.path then
-                nodePath = node.path
-            elseif type(node) == "string" then
-                nodePath = node
-            end
-            
-            local fullPath = nodePath .. "." .. field
+            local fullPath = nodePathOf(node) .. "." .. field
             if dbData[fullPath] ~= nil then
                 return dbData[fullPath]
             end
             return default
+        end
+
+        function DB.setValue(node, field, sType, val)
+            dbData[nodePathOf(node) .. "." .. field] = val
+        end
+
+        function DB.getText(node, field, default)
+            return DB.getValue(node, field, default)
         end
 
         function DB.findNode(nodePath)
@@ -117,30 +152,66 @@ async function runTests() {
             return { path = nodePath }
         end
 
-        local dbChildren = {}
         function DB.setChildren(nodePath, children)
             dbChildren[nodePath] = children
         end
 
         function DB.getChildren(node, field)
-            local nodePath = ""
-            if type(node) == "table" and node.path then
-                nodePath = node.path
-            elseif type(node) == "string" then
-                nodePath = node
-            end
-            
-            local fullPath = nodePath
-            if field then
-                fullPath = nodePath .. "." .. field
-            end
-            
+            local nodePath = nodePathOf(node)
+            local fullPath = field and (nodePath .. "." .. field) or nodePath
             local children = dbChildren[fullPath] or {}
             local list = {}
-            for k, v in pairs(children) do
-                list[k] = { path = fullPath .. "." .. k }
+            for k, _ in pairs(children) do
+                list[k] = makeNode(fullPath, k)
             end
             return list
+        end
+
+        -- Test helper (not part of the real FGU API): registers a new top-level Combat
+        -- Tracker entry with the given id/name and returns its node.
+        function DB.addCTNode(id, name)
+            dbChildren[CombatManager.CT_LIST] = dbChildren[CombatManager.CT_LIST] or {}
+            dbChildren[CombatManager.CT_LIST][id] = true
+            local node = makeNode(CombatManager.CT_LIST, id)
+            dbData[node.path .. ".name"] = name
+            return node
+        end
+
+        function CombatManager.getCTFromNode(sPath)
+            if not sPath or sPath == "" then return nil end
+            local children = dbChildren[CombatManager.CT_LIST] or {}
+            for k, _ in pairs(children) do
+                if (CombatManager.CT_LIST .. "." .. k) == sPath then
+                    return makeNode(CombatManager.CT_LIST, k)
+                end
+            end
+            return nil
+        end
+
+        -- Mock EffectManager
+        local effectCounters = {}
+        function EffectManager.parseEffect(sEffect)
+            local components = {}
+            if not sEffect or sEffect == "" then return components end
+            for token in (sEffect .. ";"):gmatch("(.-);") do
+                table.insert(components, token)
+            end
+            return components
+        end
+        function EffectManager.addEffect(sUser, sIdentity, nodeCT, rEffect, bShowMsg)
+            local parentPath = nodeCT.path .. ".effects"
+            effectCounters[parentPath] = (effectCounters[parentPath] or 0) + 1
+            local key = string.format("id-%05d", effectCounters[parentPath])
+            dbChildren[parentPath] = dbChildren[parentPath] or {}
+            dbChildren[parentPath][key] = true
+            dbData[parentPath .. "." .. key .. ".label"] = rEffect.sName
+            return makeNode(parentPath, key)
+        end
+        function EffectManager.expireEffect(nodeCT, nodeEffect, n)
+            if nodeEffect and nodeEffect.delete then nodeEffect.delete() end
+        end
+        function EffectManager.hasEffect(rActor, sEffect, rTarget, bTargetedOnly)
+            return false
         end
 
         -- Mock ActorManager
@@ -154,15 +225,28 @@ async function runTests() {
         function ActorManager.getDisplayName(node)
             return DB.getValue(node, "name", "Unknown")
         end
+        function ActorManager.getFaction(v) return "friend" end
+        function ActorManager.getRecordType(v) return "pc" end
+
+        -- Mock ActionsManager
+        function ActionsManager.registerResultHandler() end
     `);
 
     // 2. Load the actual mounttracker script
     console.log("Loading scripts/mounttracker.lua into VM...");
     const luaCodePath = path.join(__dirname, '../scripts/mounttracker.lua');
     const luaCode = fs.readFileSync(luaCodePath, 'utf8');
-    
+
     await lua.doString(luaCode);
     console.log("MountTracker loaded successfully inside VM.\n");
+
+    // Run onInit() once, as FGU would, so the extension's requestActivation/addEffect hooks
+    // are installed before any test exercises them. Disable size enforcement so mount/rider
+    // pairing tests don't need to fabricate size data unrelated to what they're testing.
+    await lua.doString(`
+        onInit()
+        OptionsManager.setOption("MOUNTTRACKER_ENFORCE_SIZE", "off")
+    `);
 
     // 3. Define and run test assertions
     console.log("Running Unit Tests...");
@@ -187,9 +271,91 @@ async function runTests() {
     await runAssert("escapePattern normal", "hello", "return escapePattern('hello')");
     await runAssert("escapePattern with brackets", "mount% %(controlled%)", "return escapePattern('mount (controlled)')");
 
+    // --- TEST 3: Path label round-trip ---
+    await runAssert("getMountOrRiderPathFromEffectNode parses embedded Path component", true, `
+        return (function()
+            dbData["test.roundtrip.label"] = "Mount: Warhorse; Path: combattracker.id-00003; MountTracker"
+            local nodeEffect = { path = "test.roundtrip" }
+            local sVal = getMountOrRiderValueFromEffectNode(nodeEffect)
+            local sPath = getMountOrRiderPathFromEffectNode(nodeEffect)
+            return sVal == "Warhorse" and sPath == "combattracker.id-00003"
+        end)()
+    `);
+
+    // --- TEST 4: Duplicate-name mount pairing survives clearAllMountTrackerDataFromCT ---
+    // Reproduces the reported bug: two CT nodes sharing a display name used to break the
+    // purely name-based partner lookup that clearAllMountTrackerDataFromCT relies on.
+    await runAssert("duplicate-name pairing survives periodic cleanup", true, `
+        return (function()
+            local nodeBob = DB.addCTNode("bob", "Bob")
+            local nodeWarhorseA = DB.addCTNode("warhorseA", "Warhorse")
+            local nodeWarhorseB = DB.addCTNode("warhorseB", "Warhorse")
+
+            processMountChatCommand("Warhorse", false, nodeBob, nodeWarhorseA)
+
+            clearAllMountTrackerDataFromCT(true)
+
+            local bobHasMount = getMountEffectNode(nodeBob) ~= nil
+            local warhorseAHasRider = getRiderEffectNode(nodeWarhorseA) ~= nil
+            local warhorseBHasRider = getRiderEffectNode(nodeWarhorseB) ~= nil
+
+            return bobHasMount and warhorseAHasRider and not warhorseBHasRider
+        end)()
+    `);
+
+    // --- TEST 5: Pairing survives repeated turn activation (the reported symptom) ---
+    await runAssert("duplicate-name pairing survives repeated turn activation", true, `
+        return (function()
+            local nodeBob2 = DB.addCTNode("bob2", "Bob2")
+            local nodeWarhorseA2 = DB.addCTNode("warhorseA2", "Warhorse2")
+            local nodeWarhorseB2 = DB.addCTNode("warhorseB2", "Warhorse2")
+
+            processMountChatCommand("Warhorse2", false, nodeBob2, nodeWarhorseA2)
+
+            -- Simulate FGU calling requestActivation on every turn advance, for several turns.
+            CombatManager.requestActivation(nodeBob2, false)
+            CombatManager.requestActivation(nodeWarhorseA2, false)
+            CombatManager.requestActivation(nodeWarhorseB2, false)
+            CombatManager.requestActivation(nodeBob2, false)
+
+            return getMountEffectNode(nodeBob2) ~= nil and getRiderEffectNode(nodeWarhorseA2) ~= nil
+        end)()
+    `);
+
+    // --- TEST 6: Backward compatibility with pre-fix effects (no Path component) ---
+    await runAssert("legacy effect with no Path component still validates by name", true, `
+        return (function()
+            local nodeCarl = DB.addCTNode("carl", "Carl")
+            local nodePony = DB.addCTNode("pony", "Pony")
+
+            EffectManager.addEffect("", "", nodeCarl, { sName = "Mount: Pony; MountTracker", nInit = 0, nDuration = 0, nGMOnly = 0 }, true)
+            EffectManager.addEffect("", "", nodePony, { sName = "Rider: Carl; MountTracker", nInit = 0, nDuration = 0, nGMOnly = 0 }, true)
+
+            clearAllMountTrackerDataFromCT(true)
+
+            return getMountEffectNode(nodeCarl) ~= nil and getRiderEffectNode(nodePony) ~= nil
+        end)()
+    `);
+
+    // --- TEST 7: Genuine invalidation (partner removed from CT) still cleans up ---
+    await runAssert("pairing is still deleted when the partner is removed from the CT", true, `
+        return (function()
+            local nodeDana = DB.addCTNode("dana", "Dana")
+            local nodeElk = DB.addCTNode("elk", "Elk")
+
+            processMountChatCommand("Elk", false, nodeDana, nodeElk)
+
+            nodeElk.delete()
+
+            clearAllMountTrackerDataFromCT(true)
+
+            return getMountEffectNode(nodeDana) == nil
+        end)()
+    `);
+
     // 4. Print Summary
     console.log(`\nTest Summary: ${testsPassed} passed, ${testsFailed} failed.`);
-    
+
     if (testsFailed > 0) {
         process.exit(1);
     }
