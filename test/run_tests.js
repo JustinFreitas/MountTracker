@@ -359,6 +359,49 @@ async function runTests() {
         end)()
     `);
 
+    // --- TEST 8: Mount created via the active-CT flow gets both sides of the pairing ---
+    // Regression guard: setNodeWithEffect used to trust EffectManager.addEffect's return value
+    // to stash the hidden partner-path field. A real-environment mismatch there could throw and
+    // abort processMountChatCommand between its two setNodeWithEffect calls, silently leaving
+    // only one side of the pairing created (which is what a broken rider-side dismount pointed to).
+    await runAssert("mount via active-CT flow creates both sides of the pairing", true, `
+        return (function()
+            local nodeErin = DB.addCTNode("erin", "Erin")
+            local nodePony2 = DB.addCTNode("pony2", "Pony2")
+
+            CombatManager.setActiveCTForTest(nodeErin)
+            processMountChatCommand("Pony2", false, nil, nodePony2)
+
+            return getMountEffectNode(nodeErin) ~= nil and getRiderEffectNode(nodePony2) ~= nil
+        end)()
+    `);
+
+    // --- TEST 9: Dismount triggered from the rider's CT entry ---
+    await runAssert("dismount triggered from the rider clears both sides", true, `
+        return (function()
+            local nodeFinn = DB.addCTNode("finn", "Finn")
+            local nodeMule = DB.addCTNode("mule", "Mule")
+
+            processMountChatCommand("Mule", false, nodeFinn, nodeMule)
+            processDismountChatCommand(nil, "Finn")
+
+            return getMountEffectNode(nodeFinn) == nil and getRiderEffectNode(nodeMule) == nil
+        end)()
+    `);
+
+    // --- TEST 10: Dismount triggered from the mount's CT entry (the newly requested behavior) ---
+    await runAssert("dismount triggered from the mount clears both sides", true, `
+        return (function()
+            local nodeGwen = DB.addCTNode("gwen", "Gwen")
+            local nodeYak = DB.addCTNode("yak", "Yak")
+
+            processMountChatCommand("Yak", false, nodeGwen, nodeYak)
+            processDismountChatCommand(nil, "Yak")
+
+            return getMountEffectNode(nodeGwen) == nil and getRiderEffectNode(nodeYak) == nil
+        end)()
+    `);
+
     // 4. Print Summary
     console.log(`\nTest Summary: ${testsPassed} passed, ${testsFailed} failed.`);
 

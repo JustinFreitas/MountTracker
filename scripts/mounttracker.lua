@@ -794,42 +794,47 @@ function processDismountChatCommand(_, sRider)  -- TODO: If sParams is populated
 	if not nodeCT then return end
 
 	local sCurrentActorName = ActorManager.getDisplayName(nodeCT)
-	local nodeRiderEffect = getRiderEffectNode(nodeCT)
-	if nodeRiderEffect then
-		local sMsg = string.format("The current actor (%s) is a mount, dismount should occur on the rider's (%s) turn.", sCurrentActorName, getMountOrRiderValueFromEffectNode(nodeRiderEffect))
-		displayChatMessage(sMsg, shouldDisplayAsSecret(nodeCT))
-		return
-	end
 
+	-- Dismount can be triggered from either side of the pairing: the clicked/named actor may be
+	-- the rider (has a Mount effect) or the mount (has a Rider effect). Resolve both nodes either
+	-- way so the same dismount logic applies regardless of which CT entry initiated it.
+	local nodeRider, nodeMount
 	local nodeMountEffect = getMountEffectNode(nodeCT)
-	if not nodeMountEffect then
+	local nodeRiderEffect = getRiderEffectNode(nodeCT)
+	if nodeMountEffect then
+		nodeRider = nodeCT
+		local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
+		if isBlankSafe(sMountName) then return end
+		nodeMount = resolveMountOrRiderPartnerNode(nodeMountEffect, sMountName)
+	elseif nodeRiderEffect then
+		nodeMount = nodeCT
+		local sRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
+		if isBlankSafe(sRiderName) then return end
+		nodeRider = resolveMountOrRiderPartnerNode(nodeRiderEffect, sRiderName)
+	else
 		local sMsg = string.format("The current actor (%s) does not have a mount.", sCurrentActorName)
 		displayChatMessage(sMsg, shouldDisplayAsSecret(nodeCT))
 		return
 	end
 
-	local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
-	if isBlankSafe(sMountName) then return end
-
-	local nodeMount = resolveMountOrRiderPartnerNode(nodeMountEffect, sMountName)
-	if not nodeMount then
+	if not nodeRider or not nodeMount then
 		-- Unmatched pair, clean up.
 		deleteAllMountOrRiderEffects(nodeCT)
 		return
 	end
 
 	-- Check to make sure the rider doesn't have an effect/condition that would make speed zero or unable to do anything.
-	local sCondition = getActorDebilitatingCondition(nodeCT)
+	local sCondition = getActorDebilitatingCondition(nodeRider)
 	if sCondition then
-		displayDebilitatingConditionChatMessage(nodeCT, sCondition)
+		displayDebilitatingConditionChatMessage(nodeRider, sCondition)
 		return
 	end
 
-	expireMountOrRiderEffectOnCTNode(nodeCT)
+	expireMountOrRiderEffectOnCTNode(nodeRider)
 	expireMountOrRiderEffectOnCTNode(nodeMount)
 	if not checkVerbosityOff() then
 		-- TODO: Calculate the movement needed w/ getSpeed() but it only works as a number on pcs, string on npc that would need to be parsed (comma separated walk is default with no prefix).
-		displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", shouldDisplayAsSecret(nodeCT))
+		displayChatMessage("Once during your move, you can mount a creature that is within 5 feet of you or dismount. Doing so costs an amount of movement equal to half your speed.", shouldDisplayAsSecret(nodeRider))
 	end
 end
 
@@ -1093,15 +1098,22 @@ function setNodeWithEffect(nodeCT, sEffect, sValue, nodePartner)
 		nGMOnly = 0
 	}
 
-	local nodeEffect = EffectManager.addEffect("", "", nodeCT, rEffect, true)
+	EffectManager.addEffect("", "", nodeCT, rEffect, true)
+
 	-- Stash the partner's CT node path in a hidden field on the effect (not part of the visible
 	-- label) so later re-validation (e.g. clearAllMountTrackerDataFromCT on every turn activation)
 	-- can resolve it unambiguously instead of re-deriving it from display-name text, which breaks
-	-- when CT nodes share a name.
-	if nodeEffect and nodePartner and nodePartner.getPath then
+	-- when CT nodes share a name. Look the effect back up by tag rather than trusting whatever
+	-- EffectManager.addEffect returns (that's not guaranteed to be the created node in every FGU/
+	-- CoreRPG version) -- deleteAllMountOrRiderEffects just cleared any prior Mount/Rider effect
+	-- on this node above, so this lookup is guaranteed to find only the one just added.
+	if nodePartner and nodePartner.getPath then
 		local sPartnerPath = nodePartner.getPath()
 		if not isBlankSafe(sPartnerPath) then
-			DB.setValue(nodeEffect, PARTNER_PATH_FIELD, "string", sPartnerPath)
+			local nodeEffect = getEffectNode(nodeCT, sEffect)
+			if nodeEffect then
+				DB.setValue(nodeEffect, PARTNER_PATH_FIELD, "string", sPartnerPath)
+			end
 		end
 	end
 end
