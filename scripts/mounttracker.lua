@@ -19,7 +19,6 @@ ON = "on"
 OOB_MSGTYPE_ATTACKFROMMOUNT = "mt_attackfrommount"
 OOB_MSGTYPE_MOUNT = "mt_mount"
 OOB_MSGTYPE_DISMOUNT = "mt_dismount"
-PARTNER_PATH_FIELD = "mtpartnerpath"
 PRONE_RULES = "If an effect moves your mount against its will while you're on it, you must succeed on a DC 10 Dexterity saving throw or fall off the mount, landing prone in a space within 5 feet of it. If you're knocked prone while mounted, you must make the same saving throw. If your mount is knocked prone, you can use your reaction to dismount it as it falls and land on your feet. Otherwise, you are dismounted and fall prone in a space within 5 feet it."
 SIZE_GARGANTUAN = "Gargantuan"
 SIZE_HUGE = "Huge"
@@ -489,17 +488,6 @@ function getMountOrRiderCombatTrackerNode(sActorName)
 	end
 
 	return nodeFound
-end
-
--- Reads the partner's CT node path off a hidden field on the Mount/Rider effect node (set by
--- setNodeWithEffect), if present. This is a plain DB field alongside the effect's label, not
--- part of the label text, so it never shows up on the CT's visible effects line. Older effects
--- (created before this was added, or typed by hand) won't have one; callers should fall back to
--- name-based resolution in that case.
-function getMountOrRiderPathFromEffectNode(nodeEffect)
-	if not nodeEffect then return nil end
-
-	return DB.getValue(nodeEffect, PARTNER_PATH_FIELD, nil)
 end
 
 function getMountOrRiderValueFromEffectNode(nodeEffect)
@@ -1018,19 +1006,13 @@ function shouldDisplayAsSecret(vActor)
     return not checkClientChat() or (not isFriend(vActor) and isNpc(vActor))
 end
 
--- Resolves the CT node paired with a Mount/Rider effect. Prefers the node path embedded in
--- the effect label (set by setNodeWithEffect) since it's unambiguous even when two CT nodes
--- share a display name; falls back to today's name-based lookup when no path is present (older
--- effects) or the path no longer resolves (paired node removed from the CT).
+-- Resolves the CT node paired with a Mount/Rider effect, by name. Previously (v1.9-v1.9.2) this
+-- preferred a CT node path stashed on the effect to disambiguate same-named CT nodes, but that
+-- mechanism caused mount/dismount to intermittently fail in real FGU in a way that could not be
+-- reproduced or diagnosed in the test harness, so it's been reverted to the plain name-based
+-- lookup this extension used reliably for years (through v1.8). nodeEffect is unused but kept in
+-- the signature so callers don't need updating if path-based resolution is revisited later.
 function resolveMountOrRiderPartnerNode(nodeEffect, sActorName)
-	local sPartnerPath = getMountOrRiderPathFromEffectNode(nodeEffect)
-	if not isBlankSafe(sPartnerPath) then
-		local nodePartner = CombatManager.getCTFromNode(sPartnerPath)
-		if nodePartner then
-			return nodePartner
-		end
-	end
-
 	return getMountOrRiderCombatTrackerNode(sActorName)
 end
 
@@ -1076,6 +1058,9 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 	end
 end
 
+-- nodePartner is currently unused (kept in the signature so callers that pass the partner node
+-- don't need updating) -- see resolveMountOrRiderPartnerNode for why the path-based lookup this
+-- was feeding was reverted.
 function setNodeWithEffect(nodeCT, sEffect, sValue, nodePartner)
 	if not nodeCT or isBlankSafe(sEffect) then return end
 
@@ -1099,23 +1084,6 @@ function setNodeWithEffect(nodeCT, sEffect, sValue, nodePartner)
 	}
 
 	EffectManager.addEffect("", "", nodeCT, rEffect, true)
-
-	-- Stash the partner's CT node path in a hidden field on the effect (not part of the visible
-	-- label) so later re-validation (e.g. clearAllMountTrackerDataFromCT on every turn activation)
-	-- can resolve it unambiguously instead of re-deriving it from display-name text, which breaks
-	-- when CT nodes share a name. Look the effect back up by tag rather than trusting whatever
-	-- EffectManager.addEffect returns (that's not guaranteed to be the created node in every FGU/
-	-- CoreRPG version) -- deleteAllMountOrRiderEffects just cleared any prior Mount/Rider effect
-	-- on this node above, so this lookup is guaranteed to find only the one just added.
-	if nodePartner and nodePartner.getPath then
-		local sPartnerPath = nodePartner.getPath()
-		if not isBlankSafe(sPartnerPath) then
-			local nodeEffect = getEffectNode(nodeCT, sEffect)
-			if nodeEffect then
-				DB.setValue(nodeEffect, PARTNER_PATH_FIELD, "string", sPartnerPath)
-			end
-		end
-	end
 end
 
 function validateTableOrNew(aTable)

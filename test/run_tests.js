@@ -271,65 +271,48 @@ async function runTests() {
     await runAssert("escapePattern normal", "hello", "return escapePattern('hello')");
     await runAssert("escapePattern with brackets", "mount% %(controlled%)", "return escapePattern('mount (controlled)')");
 
-    // --- TEST 3: Partner path is stored as a hidden field, not in the visible label ---
-    await runAssert("getMountOrRiderPathFromEffectNode reads the hidden partner-path field", true, `
-        return (function()
-            dbData["test.roundtrip.label"] = "Mount: Warhorse; MountTracker"
-            local nodeEffect = { path = "test.roundtrip" }
-            DB.setValue(nodeEffect, PARTNER_PATH_FIELD, "string", "combattracker.id-00003")
-            local sVal = getMountOrRiderValueFromEffectNode(nodeEffect)
-            local sPath = getMountOrRiderPathFromEffectNode(nodeEffect)
-            return sVal == "Warhorse" and sPath == "combattracker.id-00003"
-        end)()
-    `);
-
-    // --- TEST 4: Duplicate-name mount pairing survives clearAllMountTrackerDataFromCT ---
-    // Reproduces the reported bug: two CT nodes sharing a display name used to break the
-    // purely name-based partner lookup that clearAllMountTrackerDataFromCT relies on. Also
-    // guards against the follow-up regression where the fix leaked bookkeeping text ("Path: ...")
-    // into the visible effect label.
-    await runAssert("duplicate-name pairing survives periodic cleanup with a clean label", true, `
+    // --- TEST 3: Mount pairing (unique names) survives clearAllMountTrackerDataFromCT ---
+    // Partner resolution is plain name-based (resolveMountOrRiderPartnerNode is a passthrough to
+    // getMountOrRiderCombatTrackerNode -- see the comment on that function for why the v1.9-v1.9.2
+    // path-based disambiguation was reverted). This only guarantees correctness for unique CT
+    // names; duplicate-named mounts/riders are a known, accepted limitation, same as pre-v1.9.
+    await runAssert("mount pairing survives periodic cleanup", true, `
         return (function()
             local nodeBob = DB.addCTNode("bob", "Bob")
-            local nodeWarhorseA = DB.addCTNode("warhorseA", "Warhorse")
-            local nodeWarhorseB = DB.addCTNode("warhorseB", "Warhorse")
+            local nodeWarhorse = DB.addCTNode("warhorse", "Warhorse")
 
-            processMountChatCommand("Warhorse", false, nodeBob, nodeWarhorseA)
+            processMountChatCommand("Warhorse", false, nodeBob, nodeWarhorse)
 
             local sBobMountLabel = DB.getValue(getMountEffectNode(nodeBob), "label", "")
             local bLabelClean = not sBobMountLabel:match("[Pp]ath:")
 
             clearAllMountTrackerDataFromCT(true)
 
-            local bobHasMount = getMountEffectNode(nodeBob) ~= nil
-            local warhorseAHasRider = getRiderEffectNode(nodeWarhorseA) ~= nil
-            local warhorseBHasRider = getRiderEffectNode(nodeWarhorseB) ~= nil
-
-            return bobHasMount and warhorseAHasRider and not warhorseBHasRider and bLabelClean
+            return getMountEffectNode(nodeBob) ~= nil and getRiderEffectNode(nodeWarhorse) ~= nil and bLabelClean
         end)()
     `);
 
-    // --- TEST 5: Pairing survives repeated turn activation (the reported symptom) ---
-    await runAssert("duplicate-name pairing survives repeated turn activation", true, `
+    // --- TEST 4: Pairing survives repeated turn activation ---
+    await runAssert("mount pairing survives repeated turn activation", true, `
         return (function()
             local nodeBob2 = DB.addCTNode("bob2", "Bob2")
-            local nodeWarhorseA2 = DB.addCTNode("warhorseA2", "Warhorse2")
-            local nodeWarhorseB2 = DB.addCTNode("warhorseB2", "Warhorse2")
+            local nodeWarhorse2 = DB.addCTNode("warhorse2", "Warhorse2")
+            local nodeGoblin = DB.addCTNode("goblin", "Goblin")
 
-            processMountChatCommand("Warhorse2", false, nodeBob2, nodeWarhorseA2)
+            processMountChatCommand("Warhorse2", false, nodeBob2, nodeWarhorse2)
 
             -- Simulate FGU calling requestActivation on every turn advance, for several turns.
             CombatManager.requestActivation(nodeBob2, false)
-            CombatManager.requestActivation(nodeWarhorseA2, false)
-            CombatManager.requestActivation(nodeWarhorseB2, false)
+            CombatManager.requestActivation(nodeWarhorse2, false)
+            CombatManager.requestActivation(nodeGoblin, false)
             CombatManager.requestActivation(nodeBob2, false)
 
-            return getMountEffectNode(nodeBob2) ~= nil and getRiderEffectNode(nodeWarhorseA2) ~= nil
+            return getMountEffectNode(nodeBob2) ~= nil and getRiderEffectNode(nodeWarhorse2) ~= nil
         end)()
     `);
 
-    // --- TEST 6: Backward compatibility with pre-fix effects (no Path component) ---
-    await runAssert("legacy effect with no Path component still validates by name", true, `
+    // --- TEST 5: Effects created directly (not via processMountChatCommand) still validate by name ---
+    await runAssert("directly-created effects still validate by name", true, `
         return (function()
             local nodeCarl = DB.addCTNode("carl", "Carl")
             local nodePony = DB.addCTNode("pony", "Pony")
@@ -343,7 +326,7 @@ async function runTests() {
         end)()
     `);
 
-    // --- TEST 7: Genuine invalidation (partner removed from CT) still cleans up ---
+    // --- TEST 6: Genuine invalidation (partner removed from CT) still cleans up ---
     await runAssert("pairing is still deleted when the partner is removed from the CT", true, `
         return (function()
             local nodeDana = DB.addCTNode("dana", "Dana")
@@ -359,11 +342,7 @@ async function runTests() {
         end)()
     `);
 
-    // --- TEST 8: Mount created via the active-CT flow gets both sides of the pairing ---
-    // Regression guard: setNodeWithEffect used to trust EffectManager.addEffect's return value
-    // to stash the hidden partner-path field. A real-environment mismatch there could throw and
-    // abort processMountChatCommand between its two setNodeWithEffect calls, silently leaving
-    // only one side of the pairing created (which is what a broken rider-side dismount pointed to).
+    // --- TEST 7: Mount created via the active-CT flow gets both sides of the pairing ---
     await runAssert("mount via active-CT flow creates both sides of the pairing", true, `
         return (function()
             local nodeErin = DB.addCTNode("erin", "Erin")
@@ -376,7 +355,7 @@ async function runTests() {
         end)()
     `);
 
-    // --- TEST 9: Dismount triggered from the rider's CT entry ---
+    // --- TEST 8: Dismount triggered from the rider's CT entry ---
     await runAssert("dismount triggered from the rider clears both sides", true, `
         return (function()
             local nodeFinn = DB.addCTNode("finn", "Finn")
@@ -389,7 +368,7 @@ async function runTests() {
         end)()
     `);
 
-    // --- TEST 10: Dismount triggered from the mount's CT entry (the newly requested behavior) ---
+    // --- TEST 9: Dismount triggered from the mount's CT entry ---
     await runAssert("dismount triggered from the mount clears both sides", true, `
         return (function()
             local nodeGwen = DB.addCTNode("gwen", "Gwen")
