@@ -445,6 +445,46 @@ async function runTests() {
         end)()
     `);
 
+    // --- TEST 14: Dismounting from the mount correctly finds the paired rider despite an
+    // unrelated duplicate-named rider elsewhere in the CT. This is the case that used to fail:
+    // nodeCT (the mount) is resolved unambiguously via the explicit node from the radial menu,
+    // but the RIDER's identity still had to be resolved by the name stored on the mount's own
+    // "Rider: <name>" effect -- resolveMountOrRiderPartnerNode now verifies that candidate via
+    // hasMount()/hasRider() against the known mount instead of guessing the first name match.
+    await runAssert("dismount from the mount finds the correct rider among duplicate names", true, `
+        return (function()
+            local nodeRiderReal = DB.addCTNode("riderReal", "Durin")
+            local nodeMount = DB.addCTNode("mountX", "Warhorse")
+            processMountChatCommand("Warhorse", false, nodeRiderReal, nodeMount)
+
+            -- Unrelated duplicate-named actor who never mounted anything.
+            local nodeRiderDupe = DB.addCTNode("riderDupe", "Durin")
+
+            -- Dismount triggered from the mount's entry, as the CT radial menu does.
+            processDismountChatCommand(nil, "Warhorse", nodeMount)
+
+            return getMountEffectNode(nodeRiderReal) == nil and getRiderEffectNode(nodeMount) == nil
+        end)()
+    `);
+
+    // --- TEST 15: Same scenario, but three duplicate-named candidates, to rule out the fix
+    // only working because of how many candidates happen to precede/follow the real one. ---
+    await runAssert("dismount from the mount finds the correct rider among several duplicates", true, `
+        return (function()
+            local nodeRiderReal2 = DB.addCTNode("riderReal2", "Elowen")
+            local nodeMount2 = DB.addCTNode("mount2", "Pony")
+            processMountChatCommand("Pony", false, nodeRiderReal2, nodeMount2)
+
+            DB.addCTNode("dupe1", "Elowen")
+            DB.addCTNode("dupe2", "Elowen")
+            DB.addCTNode("dupe3", "Elowen")
+
+            processDismountChatCommand(nil, "Pony", nodeMount2)
+
+            return getMountEffectNode(nodeRiderReal2) == nil and getRiderEffectNode(nodeMount2) == nil
+        end)()
+    `);
+
     // 4. Print Summary
     console.log(`\nTest Summary: ${testsPassed} passed, ${testsFailed} failed.`);
 

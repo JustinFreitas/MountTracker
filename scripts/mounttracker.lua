@@ -190,7 +190,7 @@ function checkProne(nodeCT, rNewEffect)
 		if (nodeRiderEffect or nodeMountEffect) then
 			if nodeRiderEffect then
 				local sRider = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
-				local nodeRider = resolveMountOrRiderPartnerNode(nodeRiderEffect, sRider)
+				local nodeRider = resolveMountOrRiderPartnerNode(nodeRiderEffect, sRider, nodeCT)
 				if nodeRider then
 					local nodeMountEffectOfRider = getMountEffectNode(nodeRider)
 					if nodeMountEffectOfRider then
@@ -201,7 +201,7 @@ function checkProne(nodeCT, rNewEffect)
 				EffectManager.expireEffect(nodeCT, nodeRiderEffect, 0)
 			elseif nodeMountEffect then
 				local sMount = getMountOrRiderValueFromEffectNode(nodeMountEffect)
-				local nodeMount = resolveMountOrRiderPartnerNode(nodeMountEffect, sMount)
+				local nodeMount = resolveMountOrRiderPartnerNode(nodeMountEffect, sMount, nodeCT)
 				if nodeMount then
 					local nodeRiderEffectOfMount = getRiderEffectNode(nodeMount)
 					if nodeRiderEffectOfMount then
@@ -251,7 +251,7 @@ function clearAllMountTrackerDataFromCT(bInvalidOnly)
 		local nodeMountEffect = getMountEffectNode(nodeCT)
 		if nodeMountEffect then
 			local sEffectMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
-			local nodeMountOfEffectRider = resolveMountOrRiderPartnerNode(nodeMountEffect, sEffectMountName)
+			local nodeMountOfEffectRider = resolveMountOrRiderPartnerNode(nodeMountEffect, sEffectMountName, nodeCT)
 			if not hasRider(nodeMountOfEffectRider, ActorManager.getDisplayName(nodeCT)) then
 				bInvalid = true
 			end
@@ -260,7 +260,7 @@ function clearAllMountTrackerDataFromCT(bInvalidOnly)
 		local nodeRiderEffect = getRiderEffectNode(nodeCT)
 		if nodeRiderEffect then
 			local sEffectRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
-			local nodeRiderOfEffectMount = resolveMountOrRiderPartnerNode(nodeRiderEffect, sEffectRiderName)
+			local nodeRiderOfEffectMount = resolveMountOrRiderPartnerNode(nodeRiderEffect, sEffectRiderName, nodeCT)
 			if not hasMount(nodeRiderOfEffectMount, ActorManager.getDisplayName(nodeCT)) then
 				bInvalid = true
 			end
@@ -288,7 +288,7 @@ function deletePairedEffectNode(nodeCT)
 	local nodeMountEffect = getMountEffectNode(nodeCT)
 	if nodeMountEffect then
 		local sEffectMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
-		local nodeMountOfEffectRider = resolveMountOrRiderPartnerNode(nodeMountEffect, sEffectMountName)
+		local nodeMountOfEffectRider = resolveMountOrRiderPartnerNode(nodeMountEffect, sEffectMountName, nodeCT)
 		if hasRider(nodeMountOfEffectRider, ActorManager.getDisplayName(nodeCT)) then
 			local nodeRiderEffectOfMount = getRiderEffectNode(nodeMountOfEffectRider)
 			if nodeRiderEffectOfMount then
@@ -300,7 +300,7 @@ function deletePairedEffectNode(nodeCT)
 	local nodeRiderEffect = getRiderEffectNode(nodeCT)
 	if nodeRiderEffect then
 		local sEffectRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
-		local nodeRiderOfEffectMount = resolveMountOrRiderPartnerNode(nodeRiderEffect, sEffectRiderName)
+		local nodeRiderOfEffectMount = resolveMountOrRiderPartnerNode(nodeRiderEffect, sEffectRiderName, nodeCT)
 		if hasMount(nodeRiderOfEffectMount, ActorManager.getDisplayName(nodeCT)) then
 			local nodeMountEffectOfRider = getMountEffectNode(nodeRiderOfEffectMount)
 			if nodeMountEffectOfRider then
@@ -460,6 +460,24 @@ function getMountEffectNode(nodeCT)
 	return getEffectNode(nodeCT, MOUNT)
 end
 
+-- Returns every CT node whose display name exactly matches sActorName (case-insensitive), as an
+-- array. Used both by getMountOrRiderCombatTrackerNode and by resolveMountOrRiderPartnerNode's
+-- relationship-based disambiguation below.
+function getAllCombatTrackerNodesByExactName(sActorName)
+	local aMatches = {}
+	if isBlankSafe(sActorName) then return aMatches end
+
+	local sLowerActorName = sActorName:lower()
+	for _, nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
+		local sDisplayName = ActorManager.getDisplayName(nodeCT)
+		if sDisplayName and sDisplayName:lower() == sLowerActorName then
+			table.insert(aMatches, nodeCT)
+		end
+	end
+
+	return aMatches
+end
+
 -- Resolves a CT node by display name. If bWarnIfAmbiguous is true and more than one CT node
 -- matches, a host-only chat warning is shown and nil is returned instead of guessing -- silently
 -- picking whichever node happens to be first in DB.getChildren's iteration order is exactly the
@@ -471,31 +489,19 @@ function getMountOrRiderCombatTrackerNode(sActorName, bWarnIfAmbiguous)
 
 	local sLowerActorName = sActorName:lower()
 
-	-- First pass: exact match. Keep scanning instead of stopping at the first hit so that two CT
-	-- entries sharing an exact display name are detected as ambiguous rather than silently
-	-- resolving to whichever one happens to come first.
-	local nodeExactMatch = nil
-	local bExactAmbiguous = false
-	for _, nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
-		local sDisplayName = ActorManager.getDisplayName(nodeCT)
-		if sDisplayName and sDisplayName:lower() == sLowerActorName then
-			if nodeExactMatch then
-				bExactAmbiguous = true
-			else
-				nodeExactMatch = nodeCT
-			end
-		end
-	end
-
-	if bExactAmbiguous then
+	-- First pass: exact match. aExactMatches has more than one entry if two CT entries share an
+	-- exact display name -- that's ambiguous rather than silently resolving to whichever one
+	-- happens to come first.
+	local aExactMatches = getAllCombatTrackerNodesByExactName(sActorName)
+	if #aExactMatches > 1 then
 		if bWarnIfAmbiguous then
 			displayChatMessage(string.format("Multiple Combat Tracker entries are named '%s'. MountTracker can't tell them apart -- rename one to continue.", sActorName), true)
 		end
 		return nil
 	end
 
-	if nodeExactMatch then
-		return nodeExactMatch
+	if #aExactMatches == 1 then
+		return aExactMatches[1]
 	end
 
 	-- Second pass: Prefix match (for chat commands).
@@ -831,12 +837,12 @@ function processDismountChatCommand(_, sRider, nodeCTExplicit)
 		nodeRider = nodeCT
 		local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
 		if isBlankSafe(sMountName) then return end
-		nodeMount = resolveMountOrRiderPartnerNode(nodeMountEffect, sMountName)
+		nodeMount = resolveMountOrRiderPartnerNode(nodeMountEffect, sMountName, nodeCT)
 	elseif nodeRiderEffect then
 		nodeMount = nodeCT
 		local sRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
 		if isBlankSafe(sRiderName) then return end
-		nodeRider = resolveMountOrRiderPartnerNode(nodeRiderEffect, sRiderName)
+		nodeRider = resolveMountOrRiderPartnerNode(nodeRiderEffect, sRiderName, nodeCT)
 	else
 		local sMsg = string.format("The current actor (%s) does not have a mount.", sCurrentActorName)
 		displayChatMessage(sMsg, shouldDisplayAsSecret(nodeCT))
@@ -914,7 +920,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	if nodeMountEffect then
 		-- Check mount validity.
 		local sEffectMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
-		local nodeMountOfEffectRider = resolveMountOrRiderPartnerNode(nodeMountEffect, sEffectMountName)
+		local nodeMountOfEffectRider = resolveMountOrRiderPartnerNode(nodeMountEffect, sEffectMountName, nodeRider)
 		if hasRider(nodeMountOfEffectRider, sRiderName) then
 			local sMsg = string.format("'%s' already has a mount.", sRiderName)
 			displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
@@ -925,7 +931,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	local nodeRiderEffectOnRider = getRiderEffectNode(nodeRider)
 	if nodeRiderEffectOnRider then
 		local sEffectRiderNameOnRider = getMountOrRiderValueFromEffectNode(nodeRiderEffectOnRider)
-		local nodeRiderOfEffectRiderOnRider = resolveMountOrRiderPartnerNode(nodeRiderEffectOnRider, sEffectRiderNameOnRider)
+		local nodeRiderOfEffectRiderOnRider = resolveMountOrRiderPartnerNode(nodeRiderEffectOnRider, sEffectRiderNameOnRider, nodeRider)
 		if hasMount(nodeRiderOfEffectRiderOnRider, sRiderName) then
 			local sMsg = string.format("'%s' is a mount and can't mount another.", sRiderName)
 			displayChatMessage(sMsg, shouldDisplayAsSecret(nodeMount))
@@ -937,7 +943,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	if nodeRiderEffect then
 		-- Check rider validity.
 		local sEffectRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
-		local nodeRiderOfEffectMount = resolveMountOrRiderPartnerNode(nodeRiderEffect, sEffectRiderName)
+		local nodeRiderOfEffectMount = resolveMountOrRiderPartnerNode(nodeRiderEffect, sEffectRiderName, nodeMount)
 		if hasMount(nodeRiderOfEffectMount, sMountName) then
 			local sMsg = string.format("The mount (%s) already has a rider (%s).", sMountName, sEffectRiderName)
 			displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
@@ -1044,14 +1050,34 @@ function shouldDisplayAsSecret(vActor)
     return not checkClientChat() or (not isFriend(vActor) and isNpc(vActor))
 end
 
--- Resolves the CT node paired with a Mount/Rider effect, by name. Previously (v1.9-v1.9.2) this
--- preferred a CT node path stashed on the effect to disambiguate same-named CT nodes, but that
--- mechanism caused mount/dismount to intermittently fail in real FGU in a way that could not be
--- reproduced or diagnosed in the test harness, so it's been reverted to the plain name-based
--- lookup this extension used reliably for years (through v1.8). nodeEffect is unused but kept in
--- the signature so callers don't need updating if path-based resolution is revisited later.
-function resolveMountOrRiderPartnerNode(nodeEffect, sActorName)
-	return getMountOrRiderCombatTrackerNode(sActorName)
+-- Resolves the CT node paired with a Mount/Rider effect, by name (Previously, v1.9-v1.9.2, this
+-- preferred a CT node path stashed on the effect, but that mechanism caused mount/dismount to
+-- intermittently fail in real FGU in a way that could not be reproduced or diagnosed in the test
+-- harness, so it was reverted in v1.9.3 -- nodeEffect is unused but kept in the signature so
+-- callers don't need updating if path-based resolution is revisited later.)
+--
+-- When multiple CT nodes share sActorName's exact display name, name matching alone can't tell
+-- them apart -- but nodeOwner (the node that actually has nodeEffect) is known for certain, so
+-- among the same-named candidates we can pick the one whose own Mount/Rider effect actually
+-- references nodeOwner back, instead of silently guessing whichever candidate iteration hits
+-- first (which may not be the actual paired actor at all).
+function resolveMountOrRiderPartnerNode(nodeEffect, sActorName, nodeOwner)
+	local aCandidates = getAllCombatTrackerNodesByExactName(sActorName)
+	if #aCandidates <= 1 then
+		return aCandidates[1]
+	end
+
+	if nodeOwner then
+		local sOwnerName = ActorManager.getDisplayName(nodeOwner)
+		for _, nodeCandidate in ipairs(aCandidates) do
+			if hasMount(nodeCandidate, sOwnerName) or hasRider(nodeCandidate, sOwnerName) then
+				return nodeCandidate
+			end
+		end
+	end
+
+	-- Still ambiguous: none of the same-named candidates could be verified as the actual partner.
+	return nil
 end
 
 function requestActivation(nodeCurrentCTActor, bSkipBell)
@@ -1071,7 +1097,7 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 
 	if nodeMountEffect then
 		local sMountName = getMountOrRiderValueFromEffectNode(nodeMountEffect)
-		local nodeMount = resolveMountOrRiderPartnerNode(nodeMountEffect, sMountName)
+		local nodeMount = resolveMountOrRiderPartnerNode(nodeMountEffect, sMountName, nodeCurrentCTActor)
 		if hasRider(nodeMount, sCurrentActorDisplayName) then
 			local sSpeed = getSpeed(nodeMount)
 			-- Any mounted combat rules or detail needed on the rider's turn.
@@ -1082,7 +1108,7 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 		return
 	elseif nodeRiderEffect then
 		local sRiderName = getMountOrRiderValueFromEffectNode(nodeRiderEffect)
-		local nodeRider = resolveMountOrRiderPartnerNode(nodeRiderEffect, sRiderName)
+		local nodeRider = resolveMountOrRiderPartnerNode(nodeRiderEffect, sRiderName, nodeCurrentCTActor)
 		if hasMount(nodeRider, sCurrentActorDisplayName) then
 			local sSpeed = getSpeed(nodeCurrentCTActor)
 			local bHasSkipTurn = getEffectNode(nodeCurrentCTActor, "skipturn", true)
