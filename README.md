@@ -2,7 +2,7 @@
 
 https://github.com/JustinFreitas/MountTracker
 
-MountTracker v1.9, by Justin Freitas
+MountTracker v1.9.1, by Justin Freitas
 
 ReadMe and Usage Notes
 
@@ -80,3 +80,4 @@ Changelist:
 - v1.7 - Fix ruleset standardization incompatibility by also hooking EffectManager.addEffectByTable for Prone detection.  Implement bidirectional automated dismounting and improve chat feedback via effect expiration.
 - v1.8 - Robust Prone detection: parse effect components so compound conditions (e.g. "Prone; Incapacitated; ...") and conditions added via EffectManager.addCondition trigger auto-dismount, not just a bare "Prone" effect.  Consolidate the prone check to fire once across the addEffect/addEffectByTable hooks (verified safe on both FGU, which funnels addEffect->addEffectByTable, and FGC, which has no addEffectByTable and adds effects inline).  Return the effect node from the addEffect hook to match CoreRPG.  Fix a Tiny-rider size-comparison operator precedence bug that prevented Tiny riders from mounting.  Fix radial-menu mount targeting the wrong actor when two CT actors share a name (e.g. two "Warhorse" entries): the clicked node is now passed through explicitly (and its node path is carried over OOB for player/client mounts) instead of resolving the mount by name.  Remove dead code and minor chat text/typo cleanups.
 - v1.9 - Fix mount/rider effects silently disappearing mid-combat with no dismount action taken. The periodic per-turn validity check (which runs on every Combat Tracker turn activation, not just once per round) used to re-resolve each side of a Mount/Rider pairing purely by matching display-name text, which could pick the wrong CT node (or none) whenever names collided or an FGU-assigned suffix shifted, silently deleting a valid pairing with no chat warning. Each Mount/Rider effect now also carries its partner's exact CT node path (the same disambiguation approach used for the v1.8 duplicate-name mount fix), which is preferred during every later re-validation; effects from older versions with no embedded path still fall back to the previous name-based matching.
+- v1.9.1 - Fix the v1.9 partner-path bookkeeping showing up as ugly literal text (e.g. "Path: combattracker.list.id-00006") on the Combat Tracker's visible effect line. The partner's CT node path is now stored as a hidden field on the effect itself instead of being appended to the effect label, so the CT text stays clean (e.g. "Mount: Warhorse; MountTracker") while the same duplicate-name robustness from v1.9 is preserved.

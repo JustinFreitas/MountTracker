@@ -19,6 +19,7 @@ ON = "on"
 OOB_MSGTYPE_ATTACKFROMMOUNT = "mt_attackfrommount"
 OOB_MSGTYPE_MOUNT = "mt_mount"
 OOB_MSGTYPE_DISMOUNT = "mt_dismount"
+PARTNER_PATH_FIELD = "mtpartnerpath"
 PRONE_RULES = "If an effect moves your mount against its will while you're on it, you must succeed on a DC 10 Dexterity saving throw or fall off the mount, landing prone in a space within 5 feet of it. If you're knocked prone while mounted, you must make the same saving throw. If your mount is knocked prone, you can use your reaction to dismount it as it falls and land on your feet. Otherwise, you are dismounted and fall prone in a space within 5 feet it."
 SIZE_GARGANTUAN = "Gargantuan"
 SIZE_HUGE = "Huge"
@@ -490,24 +491,15 @@ function getMountOrRiderCombatTrackerNode(sActorName)
 	return nodeFound
 end
 
--- Extracts the partner's CT node path embedded in a Mount/Rider effect's label (added by
--- setNodeWithEffect), if present. Older effects (created before this was added, or typed
--- by hand) won't have one; callers should fall back to name-based resolution in that case.
+-- Reads the partner's CT node path off a hidden field on the Mount/Rider effect node (set by
+-- setNodeWithEffect), if present. This is a plain DB field alongside the effect's label, not
+-- part of the label text, so it never shows up on the CT's visible effects line. Older effects
+-- (created before this was added, or typed by hand) won't have one; callers should fall back to
+-- name-based resolution in that case.
 function getMountOrRiderPathFromEffectNode(nodeEffect)
 	if not nodeEffect then return nil end
 
-	local sEffectLabel = DB.getValue(nodeEffect, LABEL, "")
-	local aEffectComponents = EffectManager.parseEffect(sEffectLabel)
-
-	local sExtractedPath
-	for _, component in ipairs(aEffectComponents) do
-		local sMatch = string.match(component, "^%s*Path:%s*(.+)%s*$")
-		if sMatch then
-			sExtractedPath = sMatch
-		end
-	end
-
-	return sExtractedPath
+	return DB.getValue(nodeEffect, PARTNER_PATH_FIELD, nil)
 end
 
 function getMountOrRiderValueFromEffectNode(nodeEffect)
@@ -1088,15 +1080,6 @@ function setNodeWithEffect(nodeCT, sEffect, sValue, nodePartner)
 			sLabel = sLabel .. "; SKIPTURN"
 		end
 	end
-	-- Embed the partner's CT node path so later re-validation (e.g. clearAllMountTrackerDataFromCT
-	-- on every turn activation) can resolve it unambiguously instead of re-deriving it from
-	-- display-name text, which breaks when CT nodes share a name.
-	if nodePartner and nodePartner.getPath then
-		local sPartnerPath = nodePartner.getPath()
-		if not isBlankSafe(sPartnerPath) then
-			sLabel = sLabel .. "; Path: " .. sPartnerPath
-		end
-	end
 	sLabel = sLabel .. "; MountTracker"
 
 	if sValue then
@@ -1110,7 +1093,17 @@ function setNodeWithEffect(nodeCT, sEffect, sValue, nodePartner)
 		nGMOnly = 0
 	}
 
-	EffectManager.addEffect("", "", nodeCT, rEffect, true)
+	local nodeEffect = EffectManager.addEffect("", "", nodeCT, rEffect, true)
+	-- Stash the partner's CT node path in a hidden field on the effect (not part of the visible
+	-- label) so later re-validation (e.g. clearAllMountTrackerDataFromCT on every turn activation)
+	-- can resolve it unambiguously instead of re-deriving it from display-name text, which breaks
+	-- when CT nodes share a name.
+	if nodeEffect and nodePartner and nodePartner.getPath then
+		local sPartnerPath = nodePartner.getPath()
+		if not isBlankSafe(sPartnerPath) then
+			DB.setValue(nodeEffect, PARTNER_PATH_FIELD, "string", sPartnerPath)
+		end
+	end
 end
 
 function validateTableOrNew(aTable)

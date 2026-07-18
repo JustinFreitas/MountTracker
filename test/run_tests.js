@@ -271,11 +271,12 @@ async function runTests() {
     await runAssert("escapePattern normal", "hello", "return escapePattern('hello')");
     await runAssert("escapePattern with brackets", "mount% %(controlled%)", "return escapePattern('mount (controlled)')");
 
-    // --- TEST 3: Path label round-trip ---
-    await runAssert("getMountOrRiderPathFromEffectNode parses embedded Path component", true, `
+    // --- TEST 3: Partner path is stored as a hidden field, not in the visible label ---
+    await runAssert("getMountOrRiderPathFromEffectNode reads the hidden partner-path field", true, `
         return (function()
-            dbData["test.roundtrip.label"] = "Mount: Warhorse; Path: combattracker.id-00003; MountTracker"
+            dbData["test.roundtrip.label"] = "Mount: Warhorse; MountTracker"
             local nodeEffect = { path = "test.roundtrip" }
+            DB.setValue(nodeEffect, PARTNER_PATH_FIELD, "string", "combattracker.id-00003")
             local sVal = getMountOrRiderValueFromEffectNode(nodeEffect)
             local sPath = getMountOrRiderPathFromEffectNode(nodeEffect)
             return sVal == "Warhorse" and sPath == "combattracker.id-00003"
@@ -284,8 +285,10 @@ async function runTests() {
 
     // --- TEST 4: Duplicate-name mount pairing survives clearAllMountTrackerDataFromCT ---
     // Reproduces the reported bug: two CT nodes sharing a display name used to break the
-    // purely name-based partner lookup that clearAllMountTrackerDataFromCT relies on.
-    await runAssert("duplicate-name pairing survives periodic cleanup", true, `
+    // purely name-based partner lookup that clearAllMountTrackerDataFromCT relies on. Also
+    // guards against the follow-up regression where the fix leaked bookkeeping text ("Path: ...")
+    // into the visible effect label.
+    await runAssert("duplicate-name pairing survives periodic cleanup with a clean label", true, `
         return (function()
             local nodeBob = DB.addCTNode("bob", "Bob")
             local nodeWarhorseA = DB.addCTNode("warhorseA", "Warhorse")
@@ -293,13 +296,16 @@ async function runTests() {
 
             processMountChatCommand("Warhorse", false, nodeBob, nodeWarhorseA)
 
+            local sBobMountLabel = DB.getValue(getMountEffectNode(nodeBob), "label", "")
+            local bLabelClean = not sBobMountLabel:match("[Pp]ath:")
+
             clearAllMountTrackerDataFromCT(true)
 
             local bobHasMount = getMountEffectNode(nodeBob) ~= nil
             local warhorseAHasRider = getRiderEffectNode(nodeWarhorseA) ~= nil
             local warhorseBHasRider = getRiderEffectNode(nodeWarhorseB) ~= nil
 
-            return bobHasMount and warhorseAHasRider and not warhorseBHasRider
+            return bobHasMount and warhorseAHasRider and not warhorseBHasRider and bLabelClean
         end)()
     `);
 
