@@ -332,11 +332,31 @@ function displayDebilitatingConditionChatMessage(vActor, sCondition)
 end
 
 function displayProcessAttackFromMount(rSource, rTarget, rRoll)
+	if Debug and Debug.console then
+		Debug.console("MountTracker: displayProcessAttackFromMount called", rSource, rTarget, rRoll)
+	end
 	-- if no source or no roll then exit, skipping MountTracker processing.
-	if not rSource or not rSource.sCTNode or rSource.sCTNode == "" then return end
+	if not rSource or not rSource.sCTNode or rSource.sCTNode == "" then
+		if Debug and Debug.console then
+			Debug.console("MountTracker: exiting early: missing source or sCTNode")
+		end
+		return
+	end
+
+	-- Redirect duplicate attacker node to active CT turn node if applicable
+	local sNewPath = getActiveDuplicateCTNodePath(rSource.sCTNode)
+	if sNewPath then
+		if Debug and Debug.console then
+			Debug.console("MountTracker: redirecting duplicate attacker nodeSource path from", rSource.sCTNode, "to", sNewPath)
+		end
+		rSource.sCTNode = sNewPath
+	end
 
 	local sRollDesc = rRoll.sDesc
 	if not USER_ISHOST then
+		if Debug and Debug.console then
+			Debug.console("MountTracker: exiting early: not host, sending OOB")
+		end
 		-- For clients notify of an action from mount and then exit.  Host handler will pick up message and run code after this block.
 		notifyAttackFromMount(rSource.sCTNode, (rTarget and rTarget.sCTNode) or "", rRoll)
 		return
@@ -346,18 +366,34 @@ function displayProcessAttackFromMount(rSource, rTarget, rRoll)
 
 	local aOutput = {}
 	local nodeSource = ActorManager.getCTNode(rSource)
+	if Debug and Debug.console then
+		Debug.console("MountTracker: nodeSource =", nodeSource, "USER_ISHOST =", USER_ISHOST)
+	end
 	if nodeSource then
-		if getRiderEffectNode(nodeSource) then
+		local nodeRider = getRiderEffectNode(nodeSource)
+		local nodeMount = getMountEffectNode(nodeSource)
+		if Debug and Debug.console then
+			Debug.console("MountTracker: getRiderEffectNode =", nodeRider, "getMountEffectNode =", nodeMount)
+		end
+		if nodeRider then
 			insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Attack was made by the mount.  Is it uncontrolled?  A controlled mount can only Dash, Disengage, and Dodge.")
-		elseif getMountEffectNode(nodeSource) then
+		elseif nodeMount then
 			insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Attack was made by a mounted combatant.")
 		end
 	end
 
 	if CombatDropManager == nil or isHit(rRoll) then
 		local nodeTarget = ActorManager.getCTNode(rTarget)
+		if Debug and Debug.console then
+			Debug.console("MountTracker: nodeTarget =", nodeTarget, "isHit =", isHit(rRoll))
+		end
 		if nodeTarget then
-			if getRiderEffectNode(nodeTarget) or getMountEffectNode(nodeTarget) then
+			local nodeRiderTar = getRiderEffectNode(nodeTarget)
+			local nodeMountTar = getMountEffectNode(nodeTarget)
+			if Debug and Debug.console then
+				Debug.console("MountTracker: target getRiderEffectNode =", nodeRiderTar, "getMountEffectNode =", nodeMountTar)
+			end
+			if nodeRiderTar or nodeMountTar then
 				insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Target is a mounted combatant pair, special rules apply for prone and forced movement.")
 
 				if sRollDesc and sRollDesc:match("%[OPPORTUNITY%]") then
@@ -370,6 +406,9 @@ function displayProcessAttackFromMount(rSource, rTarget, rRoll)
 		end
 	end
 
+	if Debug and Debug.console then
+		Debug.console("MountTracker: aOutput size =", #aOutput)
+	end
 	displayTableIfNonEmpty(aOutput, false)
 end
 
@@ -456,6 +495,35 @@ function getMode()
     end
 
     return sFrameStyle
+end
+
+function getActiveDuplicateCTNodePath(sCTNode)
+	if not sCTNode or sCTNode == "" then return nil end
+
+	if not sCTNode:match("^combattracker%.") then
+		return nil
+	end
+
+	local nodeCurrent = DB.findNode(sCTNode)
+	if not nodeCurrent then return nil end
+
+	local sName = ActorManager.getDisplayName(nodeCurrent)
+	if not sName or sName == "" then return nil end
+
+	local aCandidates = getAllCombatTrackerNodesByExactName(sName)
+	if #aCandidates <= 1 then
+		return nil
+	end
+
+	local nodeActive = CombatManager.getActiveCT()
+	if nodeActive then
+		local sActiveName = ActorManager.getDisplayName(nodeActive)
+		if sActiveName and sActiveName:lower() == sName:lower() then
+			return nodeActive.getPath()
+		end
+	end
+
+	return nil
 end
 
 function getMountEffectNode(nodeCT)

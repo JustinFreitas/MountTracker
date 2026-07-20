@@ -504,6 +504,21 @@ async function runTests() {
         end)()
     `);
 
+    // --- TEST 17: Duplicate attacker redirection via getActiveDuplicateCTNodePath ---
+    await runAssert("getActiveDuplicateCTNodePath redirects to the active duplicate in combat", true, `
+        return (function()
+            -- Create two duplicate named combatants
+            local node1 = DB.addCTNode("durin1", "Durin")
+            local node2 = DB.addCTNode("durin2", "Durin")
+
+            -- Set the second duplicate as the active turn combatant
+            CombatManager.setActiveCTForTest(node2)
+
+            local sNewPath = getActiveDuplicateCTNodePath(node1.getPath())
+            return sNewPath == node2.getPath()
+        end)()
+    `);
+
     // 4. Print Summary
     console.log(`\nTest Summary: ${testsPassed} passed, ${testsFailed} failed.`);
 
