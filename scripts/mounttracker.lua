@@ -437,7 +437,9 @@ function getEffectNode(nodeCT, sEffect, bTagOnly)
 
 		-- Look through each of the effect segments matching Mount:
 		for _, component in ipairs(aEffectComponents) do
-			local sMatch = string.match(component, sEffectPattern)
+			-- Strip outer parentheses if present (e.g. from GM-only display label or manual entry)
+			local sCleanComponent = component:match("^%s*%((.-)%)%s*$") or component
+			local sMatch = string.match(sCleanComponent, sEffectPattern)
 			if sMatch then
 				return nodeEffect
 			end

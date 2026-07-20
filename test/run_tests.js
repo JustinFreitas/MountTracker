@@ -485,6 +485,25 @@ async function runTests() {
         end)()
     `);
 
+    // --- TEST 16: Parentheses parsing in getEffectNode ---
+    await runAssert("getEffectNode parses parenthesized (GM-only) effect labels", true, `
+        return (function()
+            local node = DB.addCTNode("testNode", "TestActor")
+            -- Add GM-only mount effect (parenthesized)
+            local rEffect1 = { sName = "(mount: horse)" }
+            EffectManager.addEffect("", "", node, rEffect1, true)
+
+            -- Add standard rider effect
+            local rEffect2 = { sName = "rider: elara" }
+            EffectManager.addEffect("", "", node, rEffect2, true)
+
+            local nodeMountEffect = getMountEffectNode(node)
+            local nodeRiderEffect = getRiderEffectNode(node)
+
+            return nodeMountEffect ~= nil and nodeRiderEffect ~= nil
+        end)()
+    `);
+
     // 4. Print Summary
     console.log(`\nTest Summary: ${testsPassed} passed, ${testsFailed} failed.`);
 
