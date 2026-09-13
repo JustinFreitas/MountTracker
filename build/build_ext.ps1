@@ -1,7 +1,9 @@
-$sourceDir = "C:\code\MountTracker"
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$sourceDir = Split-Path -Parent $scriptDir
+if (-not $sourceDir) { $sourceDir = (Get-Item -Path ".").FullName }
 $stagingDir = "$sourceDir\build\out\staging"
 $outputZip = "$sourceDir\build\out\MountTracker.zip"
-$fguExtensionsDir = "C:\Users\justi\AppData\Roaming\SmiteWorks\Fantasy Grounds\extensions"
+$fguExtensionsDir = Join-Path $env:APPDATA "SmiteWorks\Fantasy Grounds\extensions"
 $destinationExt = "$fguExtensionsDir\MountTracker.ext"
 
 # Clean up any existing staging/outputs
@@ -21,7 +23,7 @@ $null = New-Item -ItemType Directory -Path "$stagingDir\graphics\icons" -ErrorAc
 Copy-Item "$sourceDir\graphics\icons\*" -Destination "$stagingDir\graphics\icons\"
 
 $null = New-Item -ItemType Directory -Path "$stagingDir\scripts" -ErrorAction SilentlyContinue
-Copy-Item "$sourceDir\scripts\*" -Destination "$stagingDir\scripts\"
+Copy-Item "$sourceDir\scripts\*.lua" -Destination "$stagingDir\scripts\"
 
 # Compress staging directory contents to zip
 Write-Host "Compressing extension files..."

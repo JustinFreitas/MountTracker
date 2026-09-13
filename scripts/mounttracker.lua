@@ -5,6 +5,8 @@ INIT_RESULT = "initresult"
 IS_FGC = false
 LABEL = "label"
 LAST_DRAG_INFO = nil
+LAST_NODE_NAME = nil
+LAST_NODE_TYPE = nil
 MAX = "max"
 MOUNT = "mount"
 MOUNT_ACTIONS = " It moves as you direct it, and it has only three action options: Dash, Disengage, and Dodge. If the mount provokes an opportunity attack while you're on it, the attacker can target you or the mount."
@@ -29,7 +31,7 @@ SIZE_TINY = "Tiny"
 UCMOUNT = "ucmount"
 USER_ISHOST = false
 
-local ActionAttack_onAttack = nil
+local aOwnResultWrappers = {}
 local CombatManager_onDrop = nil
 local CombatManager_requestActivation = nil
 local EffectManager_addEffect = nil
@@ -46,12 +48,50 @@ local function isBlankSafe(s)
     return (string.gsub(s, "%s+", "") == "")
 end
 
--- Helper to safely get an actor from a node/string, preferring the modern getActor method.
-local function getActorSafe(v)
+function checkFGC()
+    if UtilityManager and UtilityManager.isClientFGU then
+        return not UtilityManager.isClientFGU()
+    end
+    if Session and Session.VersionMajor then
+        return Session.VersionMajor < 4
+    end
+    if Interface and Interface.getVersion then
+        local sVersion = tostring(Interface.getVersion() or "")
+        local sMajor = sVersion:match("^(%d+)")
+        local nMajor = tonumber(sMajor) or 0
+        return nMajor < 4
+    end
+    return false
+end
+
+-- Helper to safely get an actor from a node/string, preferring the modern getActor method on FGU and resolveActor on FGC.
+-- Note: In FGC, ActorManager.getActor is a legacy 2-argument deprecated function (sActorOldType, v)
+-- that returns resolveActor(v). Calling it with 1 argument passes v as nil, returning nil.
+function getActorSafe(v)
+    if IS_FGC or checkFGC() then
+        return ActorManager.resolveActor(v)
+    end
     if ActorManager.getActor then
         return ActorManager.getActor(v)
     end
     return ActorManager.resolveActor(v)
+end
+
+-- Helper to safely capture the ruleset's existing result handler for a roll type.
+-- ActionsManager.getResultHandler exists in FGU but not FGC, so fall back to the
+-- internal handler table or ruleset action manager before defaulting to nil.
+local function getResultHandlerSafe(sType)
+    if ActionsManager.getResultHandler then
+        return ActionsManager.getResultHandler(sType)
+    end
+    local aHandlers = ActionsManager.aRollHandlers or ActionsManager.aHandlers
+    if type(aHandlers) == "table" and type(aHandlers[sType]) == "table" then
+        return aHandlers[sType].fResultHandler
+    end
+    if sType == "attack" and ActionAttack and ActionAttack.onAttack then
+        return ActionAttack.onAttack
+    end
+    return nil
 end
 
 -- Helper to safely check for effects, preferring the modern CoreRPG or 5E-specific EffectManager if available.
@@ -71,6 +111,8 @@ function escapePattern(text)
 end
 
 function onInit()
+	IS_FGC = checkFGC()
+
 	local option_header = "option_header_mounttracker"
 	local option_val_off = "option_val_off"
 	local option_entry_cycler = "option_entry_cycler"
@@ -85,7 +127,7 @@ function onInit()
     OptionsManager.registerOption2(MOUNTTRACKER_FRAME_STYLE, false, option_header, "option_label_MOUNTTRACKER_FRAME_STYLE", option_entry_cycler,
     { baselabel = "option_val_none_MOUNTTRACKER", baseval = NONE, labels = "option_val_chat_MOUNTTRACKER|option_val_story_MOUNTTRACKER|option_val_whisper_MOUNTTRACKER", values = "chat|story|whisper", default = NONE })
 
-	USER_ISHOST = User.isHost()
+	USER_ISHOST = (Session and Session.IsHost) or (User and User.isHost and User.isHost()) or false
 
 	if USER_ISHOST then
 		OOBManager.registerOOBMsgHandler(OOB_MSGTYPE_ATTACKFROMMOUNT, handleAttackFromMount)
@@ -101,26 +143,63 @@ function onInit()
 			-- TODO: This will be the new way of doing things once they deprecate Comm.registerSlashHandler() which is coming soon.
 		--ChatManager.registerSlashCommand(MOUNT, processChatCommand)
 
-		EffectManager_addEffect = EffectManager.addEffect
-		EffectManager.addEffect = addEffect
-		EffectManager_addEffectByTable = EffectManager.addEffectByTable
-		EffectManager.addEffectByTable = addEffectByTable
-
-		if CombatDropManager then
-			CombatManager_onDrop = CombatDropManager.onLegacyDropEvent
-			CombatDropManager.onLegacyDropEvent = onDrop
-		else
-			CombatManager_onDrop = CombatManager.onDrop
-			CombatManager.onDrop = onDrop
+		if EffectManager.addEffect and EffectManager.addEffect ~= addEffect then
+			EffectManager_addEffect = EffectManager.addEffect
+			EffectManager.addEffect = addEffect
+		end
+		if EffectManager.addEffectByTable and EffectManager.addEffectByTable ~= addEffectByTable then
+			EffectManager_addEffectByTable = EffectManager.addEffectByTable
+			EffectManager.addEffectByTable = addEffectByTable
 		end
 
-        CombatManager_requestActivation = CombatManager.requestActivation
-        CombatManager.requestActivation = requestActivation
+		if CombatDropManager and CombatDropManager.registerLegacyDropCallback then
+			CombatDropManager.registerLegacyDropCallback(onDrop)
+		elseif CombatDropManager and CombatDropManager.onLegacyDropEvent then
+			if CombatDropManager.onLegacyDropEvent ~= onDrop then
+				CombatManager_onDrop = CombatDropManager.onLegacyDropEvent
+				CombatDropManager.onLegacyDropEvent = onDrop
+			end
+		else
+			if CombatManager.onDrop ~= onDrop then
+				CombatManager_onDrop = CombatManager.onDrop
+				CombatManager.onDrop = onDrop
+			end
+		end
+
+        if CombatManager.requestActivation ~= requestActivation then
+            CombatManager_requestActivation = CombatManager.requestActivation
+            CombatManager.requestActivation = requestActivation
+        end
 	end
 
-	ActionAttack_onAttack = ActionAttack.onAttack
-	ActionAttack.onAttack = onRollAttack
-	ActionsManager.registerResultHandler("attack", onRollAttack)
+	-- Hook roll resolution via ActionsManager idempotently.
+	-- We capture the existing result handler (from ruleset or prior extensions), execute it first,
+	-- and then execute our observer to process mounted combat attack redirection and chat.
+	local fOriginal = getResultHandlerSafe("attack")
+	while fOriginal and (aOwnResultWrappers[fOriginal] or fOriginal == onRollAttack) do
+		if fOriginal == onRollAttack then
+			fOriginal = ActionAttack and ActionAttack.onAttack
+			if fOriginal == onRollAttack then
+				fOriginal = nil
+			end
+		elseif aOwnResultWrappers[fOriginal] == true then
+			fOriginal = nil
+			break
+		else
+			fOriginal = aOwnResultWrappers[fOriginal]
+		end
+	end
+	if fOriginal and aOwnResultWrappers[fOriginal] == true then
+		fOriginal = nil
+	end
+	local fWrapper = function(rSource, rTarget, rRoll)
+		if fOriginal and fOriginal ~= true then
+			fOriginal(rSource, rTarget, rRoll)
+		end
+		onRollAttack(rSource, rTarget, rRoll)
+	end
+	aOwnResultWrappers[fWrapper] = fOriginal or true
+	ActionsManager.registerResultHandler("attack", fWrapper)
 end
 
 -- Tracks the effect table currently being processed so that checkProne fires only once
@@ -832,9 +911,23 @@ function notifyMount(sTarget, bUncontrolledMount, sTargetCTNodePath)
 end
 
 function onDrop(nodetype, nodename, draginfo)
+	-- In FGC, the drop event fires twice on CT entries without this deduping guard.
+	if IS_FGC or checkFGC() then
+		if LAST_DRAG_INFO == draginfo and
+		   LAST_NODE_NAME == nodename and
+		   LAST_NODE_TYPE == nodetype then
+			LAST_DRAG_INFO = nil
+			LAST_NODE_NAME = nil
+			LAST_NODE_TYPE = nil
+			return
+		end
 
+		LAST_DRAG_INFO = draginfo
+		LAST_NODE_NAME = nodename
+		LAST_NODE_TYPE = nodetype
+	end
 
-	local nodeSourceCT = draginfo.getCustomData()
+	local nodeSourceCT = draginfo and draginfo.getCustomData and draginfo.getCustomData()
 	local nodeTargetCT
 	if nodename then
 		if CombatDropManager then
@@ -844,7 +937,8 @@ function onDrop(nodetype, nodename, draginfo)
 		end
 
 		if nodeSourceCT and nodeTargetCT then
-			processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), Input.isControlPressed(), nodeSourceCT)
+			local bControl = (Input and Input.isControlPressed and Input.isControlPressed()) or false
+			processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), bControl, nodeSourceCT)
 		end
 	end
 
@@ -855,9 +949,6 @@ end
 
 -- Attack roll handler
 function onRollAttack(rSource, rTarget, rRoll)
-    if ActionAttack_onAttack then
-	    ActionAttack_onAttack(rSource, rTarget, rRoll)
-    end
 	displayProcessAttackFromMount(rSource, rTarget, rRoll)
 end
 

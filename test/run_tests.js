@@ -24,12 +24,25 @@ async function runTests() {
         OOBManager = {}
         ActionAttack = {}
         ActionsManager = {}
+        UtilityManager = {}
+        Session = { IsHost = true, VersionMajor = 4 }
+        Input = { isControlPressed = function() return false end }
 
         -- Mock Interface
         local major, minor, patch = 4, 1, 0
-        function Interface.getVersion() return major, minor, patch end
+        local sVersionOverride = nil
+        function Interface.getVersion()
+            if sVersionOverride ~= nil then
+                return sVersionOverride
+            end
+            return major, minor, patch
+        end
         function Interface.setVersion(ma, mi, pa)
-            major, mi, patch = ma, mi, pa
+            sVersionOverride = nil
+            major, minor, patch = ma, mi, pa
+        end
+        function Interface.setVersionString(s)
+            sVersionOverride = s
         end
 
         -- Mock User
@@ -217,7 +230,12 @@ async function runTests() {
         -- Mock ActorManager
         local actorMap = {}
         function ActorManager.getActor(nodeCT)
-            return actorMap[nodeCT.path]
+            local p = (type(nodeCT) == "table" and nodeCT.path) or nodeCT
+            return actorMap[p]
+        end
+        function ActorManager.resolveActor(nodeCT)
+            local p = (type(nodeCT) == "table" and nodeCT.path) or nodeCT
+            return actorMap[p]
         end
         function ActorManager.setActor(nodeCTPath, actor)
             actorMap[nodeCTPath] = actor
@@ -229,7 +247,16 @@ async function runTests() {
         function ActorManager.getRecordType(v) return "pc" end
 
         -- Mock ActionsManager
-        function ActionsManager.registerResultHandler() end
+        ActionsManager.aRollHandlers = {}
+        function ActionsManager.registerResultHandler(sType, callback)
+            ActionsManager.aRollHandlers[sType] = { fResultHandler = callback }
+        end
+        function ActionsManager.getResultHandler(sType)
+            if ActionsManager.aRollHandlers[sType] then
+                return ActionsManager.aRollHandlers[sType].fResultHandler
+            end
+            return nil
+        end
     `);
 
     // 2. Load the actual mounttracker script
@@ -266,6 +293,152 @@ async function runTests() {
     }
 
 
+
+    // --- TEST 1: checkFGC ---
+    await lua.doString(`
+        UtilityManager.isClientFGU = nil
+        Session.VersionMajor = nil
+        Interface.setVersionString("3.3.16")
+    `);
+    await runAssert("checkFGC() FGC string version", true, "return checkFGC()");
+
+    await lua.doString(`
+        Interface.setVersion(3, 3, 16)
+    `);
+    await runAssert("checkFGC() FGC number tuple", true, "return checkFGC()");
+
+    await lua.doString(`
+        Interface.setVersion(4, 1, 0)
+    `);
+    await runAssert("checkFGC() FGU number tuple", false, "return checkFGC()");
+
+    await lua.doString(`
+        UtilityManager.isClientFGU = function() return true end
+    `);
+    await runAssert("checkFGC() UtilityManager FGU true", false, "return checkFGC()");
+
+    await lua.doString(`
+        UtilityManager.isClientFGU = function() return false end
+    `);
+    await runAssert("checkFGC() UtilityManager FGC false", true, "return checkFGC()");
+
+    await lua.doString(`
+        UtilityManager.isClientFGU = nil
+        Session.VersionMajor = 4
+    `);
+    await runAssert("checkFGC() Session.VersionMajor >= 4", false, "return checkFGC()");
+
+    await lua.doString(`
+        Session.VersionMajor = 3
+    `);
+    await runAssert("checkFGC() Session.VersionMajor < 4", true, "return checkFGC()");
+
+    // Reset environment back to default FGU for subsequent tests
+    await lua.doString(`
+        Session.VersionMajor = 4
+        Interface.setVersion(4, 1, 0)
+        IS_FGC = false
+    `);
+
+    // --- TEST: getActorSafe resolution ---
+    await runAssert("getActorSafe uses resolveActor on FGC", "resolved_actor", `
+        return (function()
+            local oldResolve = ActorManager.resolveActor
+            local oldGet = ActorManager.getActor
+            ActorManager.resolveActor = function(v) return "resolved_actor" end
+            ActorManager.getActor = function(v) return "got_actor" end
+            IS_FGC = true
+            local result = getActorSafe("test_node")
+            IS_FGC = false
+            ActorManager.resolveActor = oldResolve
+            ActorManager.getActor = oldGet
+            return result
+        end)()
+    `);
+    await runAssert("getActorSafe uses getActor on FGU", "got_actor", `
+        return (function()
+            local oldResolve = ActorManager.resolveActor
+            local oldGet = ActorManager.getActor
+            ActorManager.resolveActor = function(v) return "resolved_actor" end
+            ActorManager.getActor = function(v) return "got_actor" end
+            IS_FGC = false
+            local result = getActorSafe("test_node")
+            ActorManager.resolveActor = oldResolve
+            ActorManager.getActor = oldGet
+            return result
+        end)()
+    `);
+
+    // --- TEST: onInit /reload idempotency ---
+    await runAssert("onInit reload idempotency does not cause recursion", true, `
+        return (function()
+            -- Call onInit multiple times to simulate /reload
+            onInit()
+            onInit()
+            onInit()
+
+            -- Verify requestActivation doesn't overflow stack
+            CombatManager.requestActivation("test_node", false)
+
+            -- Verify attack roll result handler doesn't overflow stack
+            local h = ActionsManager.getResultHandler("attack")
+            if h then
+                h({ sType = "pc" }, { sType = "npc" }, { sDesc = "Attack [1d20+5 = 15]", aMessages = {} })
+            end
+
+            return true
+        end)()
+    `);
+
+    // --- TEST: onDrop event deduplication ---
+    await runAssert("onDrop deduplication suppresses duplicate drop on FGC", 1, `
+        return (function()
+            local nodeRider = DB.addCTNode("rider_drop", "RiderDrop")
+            local nodeMount = DB.addCTNode("mount_drop", "MountDrop")
+            local mockDrag = {
+                getCustomData = function() return nodeRider end
+            }
+            local dropCallCount = 0
+            local oldProcess = processMountChatCommand
+            processMountChatCommand = function() dropCallCount = dropCallCount + 1 end
+
+            IS_FGC = true
+            LAST_DRAG_INFO = nil
+            LAST_NODE_NAME = nil
+            LAST_NODE_TYPE = nil
+
+            -- First drop event
+            onDrop("combattracker_entry", nodeMount.path, mockDrag)
+            -- Duplicate drop event (identical args)
+            onDrop("combattracker_entry", nodeMount.path, mockDrag)
+
+            IS_FGC = false
+            processMountChatCommand = oldProcess
+            return dropCallCount
+        end)()
+    `);
+    await runAssert("onDrop allows multiple drops on FGU", 2, `
+        return (function()
+            local nodeRider = DB.addCTNode("rider_drop_fgu", "RiderDropFGU")
+            local nodeMount = DB.addCTNode("mount_drop_fgu", "MountDropFGU")
+            local mockDrag = {
+                getCustomData = function() return nodeRider end
+            }
+            local dropCallCount = 0
+            local oldProcess = processMountChatCommand
+            processMountChatCommand = function() dropCallCount = dropCallCount + 1 end
+
+            IS_FGC = false
+
+            -- First drop event
+            onDrop("combattracker_entry", nodeMount.path, mockDrag)
+            -- Second drop event (FGU allows distinct intentional drops)
+            onDrop("combattracker_entry", nodeMount.path, mockDrag)
+
+            processMountChatCommand = oldProcess
+            return dropCallCount
+        end)()
+    `);
 
     // --- TEST 2: escapePattern ---
     await runAssert("escapePattern normal", "hello", "return escapePattern('hello')");

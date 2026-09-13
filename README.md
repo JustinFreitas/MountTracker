@@ -2,7 +2,7 @@
 
 https://github.com/JustinFreitas/MountTracker
 
-MountTracker v1.10.1, by Justin Freitas
+MountTracker v1.10.2, by Justin Freitas
 
 ReadMe and Usage Notes
 
@@ -87,3 +87,4 @@ Changelist:
 - v1.9.5 - Fix dismounting from the mount's CT entry sometimes not dismounting the rider when the rider's name is shared by another, unrelated CT entry. Even with the known side of a pairing resolved unambiguously (e.g. the clicked mount), the *other* side still had to be looked up by the name stored on the paired effect, and that lookup previously just returned the first same-named match -- possibly the wrong one. resolveMountOrRiderPartnerNode now scans every CT entry sharing that name and picks the one whose own Mount/Rider effect actually references the known side back (via the existing hasMount/hasRider checks), instead of guessing. This applies everywhere a partner gets resolved: dismounting from either side, the once-per-turn validity cleanup, mount pre-checks, and per-turn status messages.
 - v1.10.0 - Fix GM-only parenthesized effect parsing: getEffectNode now strips outer parentheses from effect components before pattern matching, allowing MountTracker to successfully recognize GM-only mounts/riders (e.g. '(mount: Warhorse)').
 - v1.10.1 - Fix duplicate attacker redirection: displayProcessAttackFromMount now redirects the duplicate attacker to the active Combat Tracker turn actor. Fix GM-only parenthesized effect parsing.
+- v1.10.2 - Restore full dual FGC (Fantasy Grounds Classic) and FGU (Fantasy Grounds Unity) compatibility in a single codebase. Fix single-argument ActorManager.getActor(v) returning nil on FGC by safely resolving via ActorManager.resolveActor. Implement hardened checkFGC() runtime detection supporting string version returns from FGC Lua 5.1. Add idempotency guards to all function hooks (requestActivation, EffectManager, drop callbacks, and attack roll result handler) to eliminate /reload infinite recursion crashes. Restore FGC Combat Tracker onDrop event deduplication.
