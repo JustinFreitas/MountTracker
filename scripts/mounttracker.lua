@@ -31,6 +31,7 @@ SIZE_TINY = "Tiny"
 UCMOUNT = "ucmount"
 USER_ISHOST = false
 
+local UNIDENTIFIED = "(unidentified)"
 local aOwnResultWrappers = {}
 local CombatManager_onDrop = nil
 local CombatManager_requestActivation = nil
@@ -46,6 +47,29 @@ local function isBlankSafe(s)
         return false
     end
     return (string.gsub(s, "%s+", "") == "")
+end
+
+function isUnidentifiedNpc(nodeRecord)
+    return isNpc(nodeRecord) and DB.getValue(nodeRecord, "isidentified", 1) == 0
+end
+
+function getUnidentifiedName(nodeRecord)
+    local sName = DB.getValue(nodeRecord, "nonid_name", "")
+    if not isBlankSafe(sName) then
+        return sName
+    end
+    return UNIDENTIFIED
+end
+
+function getActorDisplayNameSafe(vActor)
+    if not vActor then return UNIDENTIFIED end
+    local nodeCT = ActorManager.getCTNode(vActor)
+    local rActor = getActorSafe(vActor) or vActor
+    local sDisplayName = ActorManager.getDisplayName(rActor)
+    if isBlankSafe(sDisplayName) or (nodeCT and isUnidentifiedNpc(nodeCT)) then
+        return getUnidentifiedName(nodeCT or rActor)
+    end
+    return sDisplayName
 end
 
 function checkFGC()
@@ -152,12 +176,40 @@ function onInit()
 			EffectManager.addEffectByTable = addEffectByTable
 		end
 
-		if CombatDropManager and CombatDropManager.registerLegacyDropCallback then
+		-- In modern CoreRPG, CombatDropManager.handleActionDropEvent unconditionally returns true, true,
+		-- preventing CombatDropManager.handleAnyDrop from reaching registerLegacyDropCallback.
+		-- Wrapping handleAnyDrop ensures CT drops are observed on modern FGU.
+		if CombatDropManager and CombatDropManager.handleAnyDrop then
+			local fOriginalHandleAnyDrop = CombatDropManager.handleAnyDrop
+			CombatDropManager.handleAnyDrop = function(draginfo, sTargetPath, ...)
+				if sTargetPath and sTargetPath ~= "" and draginfo then
+					local nodeTargetCT = CombatManager.getCTFromNode(sTargetPath)
+					local nodeSourceCT = draginfo.getCustomData and draginfo.getCustomData()
+					if not nodeSourceCT and draginfo.getShortcutData then
+						local _, sRecord = draginfo.getShortcutData()
+						if sRecord and sRecord ~= "" then
+							nodeSourceCT = CombatManager.getCTFromNode(sRecord) or ActorManager.getCTNode(sRecord)
+						end
+					end
+					if nodeSourceCT and nodeTargetCT then
+						local bControl = (Input and Input.isControlPressed and Input.isControlPressed()) or false
+						processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), bControl, nodeSourceCT, nodeTargetCT)
+						if draginfo.getType and draginfo.getType() == "combattrackerentry" then
+							return true
+						end
+					end
+				end
+				return fOriginalHandleAnyDrop(draginfo, sTargetPath, ...)
+			end
+		elseif CombatDropManager and CombatDropManager.registerLegacyDropCallback then
 			CombatDropManager.registerLegacyDropCallback(onDrop)
 		elseif CombatDropManager and CombatDropManager.onLegacyDropEvent then
-			if CombatDropManager.onLegacyDropEvent ~= onDrop then
-				CombatManager_onDrop = CombatDropManager.onLegacyDropEvent
-				CombatDropManager.onLegacyDropEvent = onDrop
+			local fOriginalLegacyDrop = CombatDropManager.onLegacyDropEvent
+			CombatDropManager.onLegacyDropEvent = function(nodetype, nodename, draginfo)
+				onDrop(nodetype, nodename, draginfo)
+				if fOriginalLegacyDrop then
+					fOriginalLegacyDrop(nodetype, nodename, draginfo)
+				end
 			end
 		else
 			if CombatManager.onDrop ~= onDrop then
@@ -299,26 +351,56 @@ function checkProne(nodeCT, rNewEffect)
 end
 
 function checkClientChat()
-	return OptionsManager.isOption(MOUNTTRACKER_CLIENT_CHAT, ON)
+	if OptionsManager and OptionsManager.isOption and OptionsManager.isOption(MOUNTTRACKER_CLIENT_CHAT, ON) then
+		return true
+	end
+	if DB and DB.getValue and DB.getValue("options." .. MOUNTTRACKER_CLIENT_CHAT, "") == ON then
+		return true
+	end
+	return false
 end
 
 -- Alphebetical list of functions below (onInit() above was an exception)
 function checkControlledMountSkip()
-	return OptionsManager.isOption(MOUNTTRACKER_CONTROLLED_MOUNT_SKIP, ON)
+	if OptionsManager and OptionsManager.isOption and OptionsManager.isOption(MOUNTTRACKER_CONTROLLED_MOUNT_SKIP, ON) then
+		return true
+	end
+	if DB and DB.getValue and DB.getValue("options." .. MOUNTTRACKER_CONTROLLED_MOUNT_SKIP, "") == ON then
+		return true
+	end
+	return false
 end
 
 function checkEnforceSizeRule()
-	return OptionsManager.isOption(MOUNTTRACKER_ENFORCE_SIZE, ON)
+	if OptionsManager and OptionsManager.isOption and OptionsManager.isOption(MOUNTTRACKER_ENFORCE_SIZE, ON) then
+		return true
+	end
+	if DB and DB.getValue and DB.getValue("options." .. MOUNTTRACKER_ENFORCE_SIZE, "") == ON then
+		return true
+	end
+	return false
 end
 
 
 
 function checkVerbosityMax()
-	return OptionsManager.isOption(MOUNTTRACKER_VERBOSE, MAX)
+	if OptionsManager and OptionsManager.isOption and OptionsManager.isOption(MOUNTTRACKER_VERBOSE, MAX) then
+		return true
+	end
+	if DB and DB.getValue and DB.getValue("options." .. MOUNTTRACKER_VERBOSE, "") == MAX then
+		return true
+	end
+	return false
 end
 
 function checkVerbosityOff()
-	return OptionsManager.isOption(MOUNTTRACKER_VERBOSE, OFF)
+	if OptionsManager and OptionsManager.isOption and OptionsManager.isOption(MOUNTTRACKER_VERBOSE, OFF) then
+		return true
+	end
+	if DB and DB.getValue and DB.getValue("options." .. MOUNTTRACKER_VERBOSE, "") == OFF then
+		return true
+	end
+	return false
 end
 
 -- Function that walks the CT nodes and deletes the mount effects from them.
@@ -405,37 +487,25 @@ end
 
 function displayDebilitatingConditionChatMessage(vActor, sCondition)
 	local sText = string.format("'%s' is %s, can't mount/dismount.",
-								ActorManager.getDisplayName(vActor),
+								getActorDisplayNameSafe(vActor),
 								sCondition)
 	displayChatMessage(sText, shouldDisplayAsSecret(vActor))
 end
 
 function displayProcessAttackFromMount(rSource, rTarget, rRoll)
-	if Debug and Debug.console then
-		Debug.console("MountTracker: displayProcessAttackFromMount called", rSource, rTarget, rRoll)
-	end
 	-- if no source or no roll then exit, skipping MountTracker processing.
 	if not rSource or not rSource.sCTNode or rSource.sCTNode == "" then
-		if Debug and Debug.console then
-			Debug.console("MountTracker: exiting early: missing source or sCTNode")
-		end
 		return
 	end
 
 	-- Redirect duplicate attacker node to active CT turn node if applicable
 	local sNewPath = getActiveDuplicateCTNodePath(rSource.sCTNode)
 	if sNewPath then
-		if Debug and Debug.console then
-			Debug.console("MountTracker: redirecting duplicate attacker nodeSource path from", rSource.sCTNode, "to", sNewPath)
-		end
 		rSource.sCTNode = sNewPath
 	end
 
-	local sRollDesc = rRoll.sDesc
+	local sRollDesc = rRoll and rRoll.sDesc
 	if not USER_ISHOST then
-		if Debug and Debug.console then
-			Debug.console("MountTracker: exiting early: not host, sending OOB")
-		end
 		-- For clients notify of an action from mount and then exit.  Host handler will pick up message and run code after this block.
 		notifyAttackFromMount(rSource.sCTNode, (rTarget and rTarget.sCTNode) or "", rRoll)
 		return
@@ -445,15 +515,9 @@ function displayProcessAttackFromMount(rSource, rTarget, rRoll)
 
 	local aOutput = {}
 	local nodeSource = ActorManager.getCTNode(rSource)
-	if Debug and Debug.console then
-		Debug.console("MountTracker: nodeSource =", nodeSource, "USER_ISHOST =", USER_ISHOST)
-	end
 	if nodeSource then
 		local nodeRider = getRiderEffectNode(nodeSource)
 		local nodeMount = getMountEffectNode(nodeSource)
-		if Debug and Debug.console then
-			Debug.console("MountTracker: getRiderEffectNode =", nodeRider, "getMountEffectNode =", nodeMount)
-		end
 		if nodeRider then
 			insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Attack was made by the mount.  Is it uncontrolled?  A controlled mount can only Dash, Disengage, and Dodge.")
 		elseif nodeMount then
@@ -463,15 +527,9 @@ function displayProcessAttackFromMount(rSource, rTarget, rRoll)
 
 	if CombatDropManager == nil or isHit(rRoll) then
 		local nodeTarget = ActorManager.getCTNode(rTarget)
-		if Debug and Debug.console then
-			Debug.console("MountTracker: nodeTarget =", nodeTarget, "isHit =", isHit(rRoll))
-		end
 		if nodeTarget then
 			local nodeRiderTar = getRiderEffectNode(nodeTarget)
 			local nodeMountTar = getMountEffectNode(nodeTarget)
-			if Debug and Debug.console then
-				Debug.console("MountTracker: target getRiderEffectNode =", nodeRiderTar, "getMountEffectNode =", nodeMountTar)
-			end
 			if nodeRiderTar or nodeMountTar then
 				insertFormattedTextWithSeparatorIfNonEmpty(aOutput, "Target is a mounted combatant pair, special rules apply for prone and forced movement.")
 
@@ -485,10 +543,13 @@ function displayProcessAttackFromMount(rSource, rTarget, rRoll)
 		end
 	end
 
-	if Debug and Debug.console then
-		Debug.console("MountTracker: aOutput size =", #aOutput)
-	end
-	displayTableIfNonEmpty(aOutput, false)
+	local sDescLower = (sRollDesc and sRollDesc:lower()) or ""
+	local bSecret = shouldDisplayAsSecret(rSource)
+		or (rTarget and shouldDisplayAsSecret(rTarget))
+		or (rRoll and (rRoll.bSecret or rRoll.bTower))
+		or (sDescLower:match("%[tower%]") ~= nil)
+		or (sDescLower:match("%[gm%]") ~= nil)
+	displayTableIfNonEmpty(aOutput, bSecret)
 end
 
 function displayTableIfNonEmpty(aTable, bSecret)
@@ -568,7 +629,10 @@ function getEffectNode(nodeCT, sEffect, bTagOnly)
 end
 
 function getMode()
-    local sFrameStyle = OptionsManager.getOption(MOUNTTRACKER_FRAME_STYLE)
+    local sFrameStyle = (OptionsManager and OptionsManager.getOption and OptionsManager.getOption(MOUNTTRACKER_FRAME_STYLE)) or ""
+    if isBlankSafe(sFrameStyle) and DB and DB.getValue then
+        sFrameStyle = DB.getValue("options." .. MOUNTTRACKER_FRAME_STYLE, "")
+    end
     if sFrameStyle == NONE then
         sFrameStyle = ""
     end
@@ -728,8 +792,11 @@ function handleAttackFromMount(msgOOB)
 		if not rSource then return end
 
 		local rTarget = getActorSafe(msgOOB.sTargetCTNode)
+		local bSecret = (msgOOB.bSecret == "true")
 		local rRoll = {}
 		rRoll.sDesc = msgOOB.sRollDesc
+		rRoll.bSecret = bSecret
+		rRoll.bTower = bSecret
 		rRoll.aMessages = {}
 		if msgOOB.sIsHit == "true" then
 			table.insert(rRoll.aMessages, "HIT")
@@ -882,8 +949,14 @@ function notifyAttackFromMount(sSourceCTNode, sTargetCTNode, rRoll)
 	-- Capturing the username allows for the effect to be built so that it can be deleted by the client.
 	msgOOB.sSourceCTNode = sSourceCTNode
 	msgOOB.sTargetCTNode = sTargetCTNode
-	msgOOB.sRollDesc = rRoll.sDesc
+	msgOOB.sRollDesc = (rRoll and rRoll.sDesc) or ""
 	msgOOB.sIsHit = tostring(isHit(rRoll))
+	local bRollSecret = (rRoll and (rRoll.bSecret or rRoll.bTower)) or false
+	local sDescLower = msgOOB.sRollDesc:lower()
+	if sDescLower:match("%[tower%]") or sDescLower:match("%[gm%]") then
+		bRollSecret = true
+	end
+	msgOOB.bSecret = tostring(bRollSecret)
 	Comm.deliverOOBMessage(msgOOB, "")
 end
 
@@ -930,7 +1003,7 @@ function onDrop(nodetype, nodename, draginfo)
 	local nodeSourceCT = draginfo and draginfo.getCustomData and draginfo.getCustomData()
 	local nodeTargetCT
 	if nodename then
-		if CombatDropManager then
+		if type(nodename) == "table" and nodename.sCTNode then
 			nodeTargetCT = CombatManager.getCTFromNode(nodename.sCTNode)
 		else
 			nodeTargetCT = CombatManager.getCTFromNode(nodename)
@@ -938,7 +1011,7 @@ function onDrop(nodetype, nodename, draginfo)
 
 		if nodeSourceCT and nodeTargetCT then
 			local bControl = (Input and Input.isControlPressed and Input.isControlPressed()) or false
-			processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), bControl, nodeSourceCT)
+			processMountChatCommand(ActorManager.getDisplayName(nodeTargetCT), bControl, nodeSourceCT, nodeTargetCT)
 		end
 	end
 
@@ -1065,7 +1138,7 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 	-- CT, e.g. two "Warhorse" actors). Fall back to resolving the mount by name for chat commands.
 	local nodeMount = nodeMountExplicit or getMountOrRiderCombatTrackerNode(sMountName, true)
 	if nodeRider == nodeMount then
-		local sMsg = string.format("The rider and mount (%s) must be unique names.", ActorManager.getDisplayName(nodeRider))
+		local sMsg = string.format("The rider and mount (%s) must be unique names.", getActorDisplayNameSafe(nodeRider))
 		displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 		return
 	end
@@ -1163,9 +1236,9 @@ function processMountChatCommand(sMountName, bUncontrolledMount, nodeRiderExplic
 		local sNewInit = tostring(nNewInit)
 		if nOldInit ~= nNewInit then
 			DB.setValue(nodeMount, INIT_RESULT, "number", nNewInit)
-			sCoreMountRules = string.format("Changed the mount (%s) initiative from %s to %s.\r\r%s", ActorManager.getDisplayName(nodeMount), sOldInit, sNewInit, sCoreMountRules)
+			sCoreMountRules = string.format("Changed the mount (%s) initiative from %s to %s.\r\r%s", getActorDisplayNameSafe(nodeMount), sOldInit, sNewInit, sCoreMountRules)
 		else
-			sCoreMountRules = string.format("Initiative of mount (%s) was not changed.\r\r%s", ActorManager.getDisplayName(nodeMount), sCoreMountRules)
+			sCoreMountRules = string.format("Initiative of mount (%s) was not changed.\r\r%s", getActorDisplayNameSafe(nodeMount), sCoreMountRules)
 		end
 
 		if checkVerbosityMax() then
@@ -1183,7 +1256,7 @@ function processSubinitChatCommand(_, _)
 	-- Walk the CT resetting all names.
 	for _,nodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
         local sCharacterName = ActorManager.getDisplayName(nodeCT)
-        local sRegex = "^" .. sCharacterName .. "'s?.*$"
+        local sRegex = "^" .. escapePattern(sCharacterName) .. "'s?.*$"
         local nNodeCTInit = DB.getValue(nodeCT, INIT_RESULT, 0)
         for _,subNodeCT in pairs(DB.getChildren(CombatManager.CT_LIST)) do
             if nodeCT ~= subNodeCT and string.match(ActorManager.getDisplayName(subNodeCT), sRegex) ~= nil then
@@ -1192,7 +1265,7 @@ function processSubinitChatCommand(_, _)
         end
 	end
 
-    displayChatMessage("Sub-initiatives processed.")
+    displayChatMessage("Sub-initiatives processed.", true)
 end
 
 function processUncontrolledMountChatCommand(_, sParams)
@@ -1262,7 +1335,7 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 		if hasRider(nodeMount, sCurrentActorDisplayName) then
 			local sSpeed = getSpeed(nodeMount)
 			-- Any mounted combat rules or detail needed on the rider's turn.
-			local sMsg = string.format("'%s' is riding a mount (%s). Speed: %s%s", sCurrentActorDisplayName, sMountName, sSpeed, sMountActions)
+			local sMsg = string.format("'%s' is riding a mount (%s). Speed: %s%s", getActorDisplayNameSafe(nodeCurrentCTActor), getActorDisplayNameSafe(nodeMount), sSpeed, sMountActions)
 			displayChatMessage(sMsg, shouldDisplayAsSecret(rCurrentActor))
 		end
 
@@ -1274,7 +1347,7 @@ function requestActivation(nodeCurrentCTActor, bSkipBell)
 			local sSpeed = getSpeed(nodeCurrentCTActor)
 			local bHasSkipTurn = getEffectNode(nodeCurrentCTActor, "skipturn", true)
 			if not bHasSkipTurn then
-				local sMsg = string.format("'%s' is a mount being ridden by '%s'. Speed: %s%s", sCurrentActorDisplayName, sRiderName, sSpeed, sMountActions)
+				local sMsg = string.format("'%s' is a mount being ridden by '%s'. Speed: %s%s", getActorDisplayNameSafe(nodeCurrentCTActor), getActorDisplayNameSafe(nodeRider), sSpeed, sMountActions)
 				displayChatMessage(sMsg, shouldDisplayAsSecret(nodeRider))
 			end
 		end
@@ -1301,11 +1374,16 @@ function setNodeWithEffect(nodeCT, sEffect, sValue, nodePartner)
 		deleteAllMountOrRiderEffects(nodeCT)
 	end
 
+	local nGMOnly = 0
+	if isUnidentifiedNpc(nodeCT) or (nodePartner and isUnidentifiedNpc(nodePartner)) then
+		nGMOnly = 1
+	end
+
 	local rEffect = {
 		sName = sLabel,
 		nInit = 0,
 		nDuration = 0,
-		nGMOnly = 0
+		nGMOnly = nGMOnly
 	}
 
 	EffectManager.addEffect("", "", nodeCT, rEffect, true)

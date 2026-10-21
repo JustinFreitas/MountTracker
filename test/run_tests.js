@@ -79,19 +79,39 @@ async function runTests() {
 
         -- Mock Comm
         local chatMessages = {}
+        local secretMessages = {}
+        local broadcastMessages = {}
         function Comm.registerSlashHandler() end
         function Comm.addChatMessage(msg)
             table.insert(chatMessages, msg.text)
+            table.insert(secretMessages, msg.text)
         end
         function Comm.deliverChatMessage(msg)
             table.insert(chatMessages, msg.text)
+            table.insert(broadcastMessages, msg.text)
         end
         function Comm.getChatMessages()
             return chatMessages
         end
+        function Comm.getSecretMessages()
+            return secretMessages
+        end
+        function Comm.getBroadcastMessages()
+            return broadcastMessages
+        end
         function Comm.clearChatMessages()
             chatMessages = {}
+            secretMessages = {}
+            broadcastMessages = {}
         end
+
+        -- Mock CombatDropManager
+        CombatDropManager = {}
+        CombatDropManager._handleAnyDrop = function(draginfo, sTargetPath) return false end
+        CombatDropManager.handleAnyDrop = function(draginfo, sTargetPath, ...)
+            return CombatDropManager._handleAnyDrop(draginfo, sTargetPath, ...)
+        end
+        CombatDropManager.registerLegacyDropCallback = function(cb) CombatDropManager._legacyCb = cb end
 
         -- Mock OOBManager
         local oobHandlers = {}
@@ -144,12 +164,19 @@ async function runTests() {
             dbData[path] = val
         end
 
-        function DB.getValue(node, field, default)
-            local fullPath = nodePathOf(node) .. "." .. field
+        function DB.getValue(nodeOrPath, fieldOrDefault, defaultVal)
+            if defaultVal == nil and (type(fieldOrDefault) ~= "string" or fieldOrDefault == "" or (type(nodeOrPath) == "string" and nodeOrPath:match("^options%."))) then
+                local sPath = (type(nodeOrPath) == "table" and nodeOrPath.getPath and nodeOrPath.getPath()) or tostring(nodeOrPath)
+                if dbData[sPath] ~= nil then
+                    return dbData[sPath]
+                end
+                return fieldOrDefault
+            end
+            local fullPath = nodePathOf(nodeOrPath) .. "." .. fieldOrDefault
             if dbData[fullPath] ~= nil then
                 return dbData[fullPath]
             end
-            return default
+            return defaultVal
         end
 
         function DB.setValue(node, field, sType, val)
@@ -240,11 +267,31 @@ async function runTests() {
         function ActorManager.setActor(nodeCTPath, actor)
             actorMap[nodeCTPath] = actor
         end
+        function ActorManager.getCTNode(v)
+            if type(v) == "table" and v.path and v.path:match("^combattracker") then
+                return v
+            end
+            if type(v) == "table" and v.getPath and v.getPath():match("^combattracker") then
+                return v
+            end
+            if type(v) == "string" and v:match("^combattracker") then
+                return DB.findNode(v)
+            end
+            if type(v) == "table" and v.sCTNode then
+                return DB.findNode(v.sCTNode)
+            end
+            return nil
+        end
         function ActorManager.getDisplayName(node)
             return DB.getValue(node, "name", "Unknown")
         end
         function ActorManager.getFaction(v) return "friend" end
-        function ActorManager.getRecordType(v) return "pc" end
+        function ActorManager.getRecordType(v)
+            return DB.getValue(v, "recordType", "pc")
+        end
+        function ActorManager.isPC(v)
+            return ActorManager.getRecordType(v) == "pc"
+        end
 
         -- Mock ActionsManager
         ActionsManager.aRollHandlers = {}
@@ -689,6 +736,143 @@ async function runTests() {
 
             local sNewPath = getActiveDuplicateCTNodePath(node1.getPath())
             return sNewPath == node2.getPath()
+        end)()
+    `);
+
+    // --- TEST 18: CombatDropManager.handleAnyDrop with duplicate mount names ---
+    await runAssert("handleAnyDrop passes explicit target node and pairs identical-named mounts", true, `
+        return (function()
+            local nodeRider = DB.addCTNode("rider_drop_test", "Knight")
+            local nodeMount1 = DB.addCTNode("mount_drop_1", "Warhorse")
+            local nodeMount2 = DB.addCTNode("mount_drop_2", "Warhorse")
+
+            local mockDrag = {
+                getType = function() return "combattrackerentry" end,
+                getCustomData = function() return nodeRider end
+            }
+
+            -- Drop rider specifically onto Mount 2
+            CombatDropManager.handleAnyDrop(mockDrag, nodeMount2.getPath())
+
+            -- Mount 2 should receive the Rider effect, NOT Mount 1
+            local effMount1 = getRiderEffectNode(nodeMount1)
+            local effMount2 = getRiderEffectNode(nodeMount2)
+
+            return effMount1 == nil and effMount2 ~= nil
+        end)()
+    `);
+
+    // --- TEST 19: CombatDropManager.handleAnyDrop token shortcut fallback ---
+    await runAssert("handleAnyDrop supports token shortcut fallback when customData is nil", true, `
+        return (function()
+            local nodeRider = DB.addCTNode("rider_token_test", "Cavalier")
+            local nodeMount = DB.addCTNode("mount_token_test", "Griffon")
+
+            local mockDrag = {
+                getType = function() return "token" end,
+                getCustomData = function() return nil end,
+                getShortcutData = function() return "combattrackerentry", nodeRider.getPath() end
+            }
+
+            CombatDropManager.handleAnyDrop(mockDrag, nodeMount.getPath())
+
+            local effMount = getRiderEffectNode(nodeMount)
+            local effRider = getMountEffectNode(nodeRider)
+            return effMount ~= nil and effRider ~= nil
+        end)()
+    `);
+
+    // --- TEST 20: Attack Secrecy and Dice Tower Privacy ---
+    await runAssert("displayProcessAttackFromMount delivers secretly on [TOWER] or bTower roll", true, `
+        return (function()
+            local nodeRider = DB.addCTNode("tower_rider", "Paladin")
+            local nodeMount = DB.addCTNode("tower_mount", "Pegasus")
+            processMountChatCommand("Pegasus", false, nodeRider, nodeMount)
+
+            Comm.clearChatMessages()
+            local rSource = ActorManager.resolveActor(nodeRider) or { sCTNode = nodeRider.getPath() }
+            local rRollTower = { sDesc = "Attack [TOWER]", bTower = true }
+
+            USER_ISHOST = true
+            displayProcessAttackFromMount(rSource, nil, rRollTower)
+
+            local secretCount = #Comm.getSecretMessages()
+            local broadcastCount = #Comm.getBroadcastMessages()
+
+            return secretCount > 0 and broadcastCount == 0
+        end)()
+    `);
+
+    // --- TEST 21: Unidentified NPC Effect and Display Name Protection ---
+    await runAssert("unidentified NPC gets nGMOnly = 1 and masked display name in chat", true, `
+        return (function()
+            local nodeRider = DB.addCTNode("hero_rider", "Hero")
+            local nodeMount = DB.addCTNode("secret_dragon", "Young Green Dragon")
+            DB.setValue(nodeMount, "isidentified", "number", 0)
+            DB.setValue(nodeMount, "nonid_name", "string", "Strange Winged Beast")
+            DB.setValue(nodeMount, "recordType", "string", "npc")
+
+            -- Verify getActorDisplayNameSafe masks the name
+            local sSafe = getActorDisplayNameSafe(nodeMount)
+            if sSafe ~= "Strange Winged Beast" then return false end
+
+            -- Create pairing
+            processMountChatCommand("Young Green Dragon", false, nodeRider, nodeMount)
+
+            -- Check GM-only flag in effects
+            local parentPath = nodeRider.getPath() .. ".effects"
+            local children = DB.getChildren(nodeRider, "effects")
+            local bGMOnlyFound = false
+            for _, child in pairs(children) do
+                local sLabel = DB.getValue(child, "label", "")
+                if sLabel:match("Mount:") then
+                    bGMOnlyFound = true
+                end
+            end
+
+            return bGMOnlyFound
+        end)()
+    `);
+
+    // --- TEST 22: /subinit with Special Character Names ---
+    await runAssert("processSubinitChatCommand synchronizes initiative and survives regex special characters", true, `
+        return (function()
+            -- Create master with brackets and dashes
+            local nodeMaster1 = DB.addCTNode("master1", "Ranger (Wood Elf)")
+            DB.setValue(nodeMaster1, "initresult", "number", 18)
+            local nodeSub1 = DB.addCTNode("sub1", "Ranger (Wood Elf)'s Wolf")
+            DB.setValue(nodeSub1, "initresult", "number", 5)
+
+            -- Create master with apostrophe
+            local nodeMaster2 = DB.addCTNode("master2", "D'Artagnan")
+            DB.setValue(nodeMaster2, "initresult", "number", 14)
+            local nodeSub2 = DB.addCTNode("sub2", "D'Artagnan's Steed")
+            DB.setValue(nodeSub2, "initresult", "number", 3)
+
+            processSubinitChatCommand(nil, "")
+
+            local initSub1 = DB.getValue(nodeSub1, "initresult", 0)
+            local initSub2 = DB.getValue(nodeSub2, "initresult", 0)
+
+            return initSub1 == 18 and initSub2 == 14
+        end)()
+    `);
+
+    // --- TEST 23: Options Database Fallback ---
+    await runAssert("client option helpers fall back to DB options when OptionsManager returns nil", true, `
+        return (function()
+            -- Unset in OptionsManager
+            OptionsManager.setOption("MOUNTTRACKER_CLIENT_CHAT", nil)
+            OptionsManager.setOption("MOUNTTRACKER_FRAME_STYLE", nil)
+
+            -- Set in DB directly
+            DB.setNodeValue("options.MOUNTTRACKER_CLIENT_CHAT", "on")
+            DB.setNodeValue("options.MOUNTTRACKER_FRAME_STYLE", "chat")
+
+            local bClientChat = checkClientChat()
+            local sMode = getMode()
+
+            return bClientChat == true and sMode == "chat"
         end)()
     `);
 

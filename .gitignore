@@ -1,10 +1,6 @@
-.gitattributes
-.vs/slnx.sqlite
-.vs/VSWorkspaceState.json
-.vscode/settings.json
+.vs/
+.vscode/
 scripts/.luacheckrc
 scripts/luacheck.exe
-readme.txt
-build/out/MountTracker.ext
-build/out/MountTracker.zip
+build/out/
 node_modules/
