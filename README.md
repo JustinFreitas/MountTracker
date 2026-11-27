@@ -86,6 +86,9 @@ Located under the **Options** window in the **MountTracker (GM)** section:
 
 ## Version History
 
+* **v1.12** (November 2026):
+  * Adopted FGU `v5.1.16` `hasMenuItem` dynamic radial menu slot selection on host and client Combat Tracker entries to prevent slot collisions (with fallback for older builds and 3-arg `super.onMenuSelection` forwarding).
+  * Fixed client CT radial menu handler to stop emitting the active-turn warning on unrelated radial menu clicks and fixed the out-of-combat `nil == nil` turn-check bypass.
 * **v1.11** (October 2026):
   * CoreRPG modernization: Wrapped `CombatDropManager.handleAnyDrop` for reliable CT drag-and-drop pairings in modern FGU.
   * Removed debug console logging from attack rolls.
