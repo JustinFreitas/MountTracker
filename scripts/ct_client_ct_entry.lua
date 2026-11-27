@@ -1,26 +1,37 @@
+local nMenuSlot = nil
+
 function onInit()
 	if super and super.onInit then
 		super.onInit();
 	end
 
-    local nPosition = 3
-    while(not pcall(registerMenuItem, "MountTracker", "white_mount_icon", nPosition)
-            and nPosition <= 8)
-    do
-        nPosition = nPosition + 1
+    nMenuSlot = nil
+    if hasMenuItem then
+        for _, nCandidate in ipairs({ 3, 5, 7, 8, 4, 2, 1 }) do
+            if not hasMenuItem(nCandidate) then
+                nMenuSlot = nCandidate
+                break
+            end
+        end
+    else
+        nMenuSlot = 3
     end
 
-    registerMenuItem("Controlled Mount", "c_icon", nPosition, 2)
-    registerMenuItem("Uncontrolled Mount", "u_icon", nPosition, 3)
-    registerMenuItem("Dismount", "d_icon", nPosition, 5)
+    if nMenuSlot then
+        registerMenuItem("MountTracker", "white_mount_icon", nMenuSlot)
+        registerMenuItem("Controlled Mount", "c_icon", nMenuSlot, 2)
+        registerMenuItem("Uncontrolled Mount", "u_icon", nMenuSlot, 3)
+        registerMenuItem("Dismount", "d_icon", nMenuSlot, 5)
+    end
 end
 
-function onMenuSelection(selection, subselection)
-    local nodeCT = getDatabaseNode()
+function onMenuSelection(selection, subselection, subsubselection)
+    if nMenuSlot and selection == nMenuSlot then
+        local nodeCT = getDatabaseNode()
+        local nodeActiveCT = CombatManager.getActiveCT()
 
--- Only process client MountTracker notifications if it's our turn (we control the activeCT node) or it's a friend's turn.
-    if nodeCT and CombatManager.getCurrentUserCT() == CombatManager.getActiveCT() then
-        if selection == 3 then
+        -- Only process client MountTracker notifications if it's our turn (we control the activeCT node).
+        if nodeCT and nodeActiveCT and CombatManager.getCurrentUserCT() == nodeActiveCT then
             if subselection == 2 then
                 notifyMount(nodeCT, false)
             elseif subselection == 3 then
@@ -28,15 +39,15 @@ function onMenuSelection(selection, subselection)
             elseif subselection == 5 then
                 MountTracker.notifyDismount()
             end
-
-            return
+        else
+            MountTracker.displayChatMessage("Combat must be active and it must be your turn to mount/dismount.", true)
         end
-    else
-        MountTracker.displayChatMessage("Combat must be active and it must be your turn to mount/dismount.", true)
+
+        return
     end
 
     if super and super.onMenuSelection then
-        super.onMenuSelection(selection, subselection)
+        super.onMenuSelection(selection, subselection, subsubselection)
     end
 end
 
